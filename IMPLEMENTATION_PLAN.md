@@ -205,6 +205,7 @@ DebOS is a **POSIX-compatible microkernel** system written in Rust with AI integ
 | 2C | FAT32 filesystem support | ✅ Complete |
 | 2D | VFS Server migration (userspace) | ⏳ Pending |
 | 2E | Networking stack | ⏳ Pending |
+| 2F | **Ultra-Fast I/O (100x improvement)** | ⏳ Pending |
 
 ### 2.1 Device Manager (DevMan)
 
@@ -312,6 +313,119 @@ For each driver (e.g., `drivers/virtio_net`):
 3. [ ] Implement interrupt handler loop
 4. [ ] Data transfer to/from core servers via IPC
 5. [ ] Error handling and recovery
+
+### 2.5 Ultra-Fast I/O (Phase 2F)
+
+**Goal:** 100x faster I/O than existing operating systems  
+**Documentation:** [docs/developer/ULTRA_FAST_IO.md](docs/developer/ULTRA_FAST_IO.md)
+
+#### 2.5.1 IoRing - Async I/O Engine
+
+**Core Concept:** io_uring-style lock-free submission/completion queues
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Traditional I/O Path                       │
+│  Syscall (1-2µs) → VFS (0.5µs) → FS (0.5µs) → Block (0.5µs) │
+│  → Driver (0.5µs) → Interrupt (2-5µs)                        │
+│  Total: 5-10µs per I/O                                        │
+└──────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────┐
+│                    DebOS IoRing Path                          │
+│  Memory write to SQ (20ns) → Poll CQ (10ns)                  │
+│  Total: 30-50ns per I/O                                       │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- [ ] **IORING-001**: Submission Queue (SQ) - lock-free ring buffer
+- [ ] **IORING-002**: Completion Queue (CQ) - lock-free ring buffer
+- [ ] **IORING-003**: SQ Entry (SQE) - 64-byte command structure
+- [ ] **IORING-004**: CQ Entry (CQE) - 16-byte completion structure
+- [ ] **IORING-005**: sys_io_ring_setup syscall
+- [ ] **IORING-006**: sys_io_ring_enter syscall
+- [ ] **IORING-007**: sys_io_ring_register syscall
+- [ ] **IORING-008**: READ/WRITE operation support
+- [ ] **IORING-009**: FSYNC operation support
+- [ ] **IORING-010**: Linked operations (chains)
+
+#### 2.5.2 Zero-Copy Buffer Management
+
+**Core Concept:** Pre-registered buffers, no per-I/O allocations
+
+- [ ] **ZCOPY-001**: Buffer pool allocator (lock-free)
+- [ ] **ZCOPY-002**: DMA mapping cache
+- [ ] **ZCOPY-003**: IOMMU integration for DMA safety
+- [ ] **ZCOPY-004**: Fixed file descriptor table
+- [ ] **ZCOPY-005**: Registered buffer syscalls
+- [ ] **ZCOPY-006**: Splice/sendfile zero-copy
+
+#### 2.5.3 Polled I/O Engine
+
+**Core Concept:** Eliminate interrupt overhead with polling
+
+```
+Interrupt-driven: Device completion → IRQ (1µs) → Handler (0.5µs) 
+                  → Context switch (1-2µs) = 3-5µs total
+
+Polled mode:      Device completion → Poll CQ (10-20ns) = 10-20ns total
+```
+
+- [ ] **POLL-001**: Poll-mode NVMe driver
+- [ ] **POLL-002**: Per-CPU poll threads
+- [ ] **POLL-003**: Adaptive polling (poll → interrupt on idle)
+- [ ] **POLL-004**: CPU affinity for poll threads
+- [ ] **POLL-005**: Power management integration
+
+#### 2.5.4 Batched Submission
+
+**Core Concept:** Amortize syscall overhead across many operations
+
+- [ ] **BATCH-001**: Multi-submit syscall (32+ ops per call)
+- [ ] **BATCH-002**: Vectored I/O (readv/writev)
+- [ ] **BATCH-003**: Coalesced completions
+- [ ] **BATCH-004**: Timeout handling for batches
+
+#### 2.5.5 Lock-Free Filesystem
+
+**Core Concept:** RCU-based metadata, per-CPU allocation
+
+- [ ] **LFFS-001**: RCU (Read-Copy-Update) infrastructure
+- [ ] **LFFS-002**: Lock-free inode cache
+- [ ] **LFFS-003**: Lock-free dentry cache
+- [ ] **LFFS-004**: Per-CPU block allocation
+- [ ] **LFFS-005**: Lock-free free space bitmap
+- [ ] **LFFS-006**: Lazy writeback with batching
+
+#### 2.5.6 Direct Device Access (Optional, Capability-Controlled)
+
+**Core Concept:** Userspace driver for maximum performance
+
+- [ ] **DIRECT-001**: VFIO driver binding
+- [ ] **DIRECT-002**: Userspace NVMe command submission
+- [ ] **DIRECT-003**: DMA buffer management in userspace
+- [ ] **DIRECT-004**: Capability-based access control
+- [ ] **DIRECT-005**: Safety enforcement via IOMMU
+
+#### 2.5.7 Performance Targets
+
+| Metric | Linux io_uring | DebOS Target | Improvement |
+|--------|----------------|--------------|-------------|
+| Submit latency | 100-200ns | 20-50ns | 4-10x |
+| Completion latency | 50-100ns | 10-20ns | 5-10x |
+| End-to-end 4KB read | 5-10µs | 100-300ns | 30-100x |
+| Random 4KB IOPS | 1-2M | 5-10M | 5-10x |
+| Batched submit (32) | 3-5µs | 100-200ns | 25-50x |
+
+#### 2.5.8 Trade-offs
+
+| Trade-off | Impact | Mitigation |
+|-----------|--------|------------|
+| Security reduced | Medium | IOMMU, capabilities, audit logging |
+| Memory overhead | +50-100MB | Only for fast-path apps |
+| Power consumption | +10-30% when polling | Adaptive polling |
+| Complexity | +5000 LOC | Extensive testing, documentation |
+| Legacy compat | Must use new APIs | Transparent wrapper available |
 
 ---
 
@@ -700,6 +814,74 @@ qemu-system-x86_64 \
 - [ ] **SRV-006**: TCP/IP stack (lwIP port or custom)
 - [ ] **SRV-007**: Device Manager with PCI enumeration
 - [ ] **SRV-008**: Driver loading mechanism
+
+#### Phase 2F: Ultra-Fast I/O (100x Improvement) ⏳ PENDING
+
+**Documentation:** [docs/developer/ULTRA_FAST_IO.md](docs/developer/ULTRA_FAST_IO.md)
+
+##### 2F-1: IoRing Foundation
+- [ ] **IORING-001**: SQ ring buffer (lock-free, cache-aligned)
+- [ ] **IORING-002**: CQ ring buffer (lock-free, cache-aligned)
+- [ ] **IORING-003**: SQE structure (64-byte, packed)
+- [ ] **IORING-004**: CQE structure (16-byte, packed)
+- [ ] **IORING-005**: sys_io_ring_setup (create ring, map memory)
+- [ ] **IORING-006**: sys_io_ring_enter (submit, wait)
+- [ ] **IORING-007**: sys_io_ring_register (buffers, files)
+- [ ] **IORING-008**: READ operation
+- [ ] **IORING-009**: WRITE operation
+- [ ] **IORING-010**: FSYNC operation
+- [ ] **IORING-011**: Linked operations (dependency chains)
+- [ ] **IORING-012**: Timeout handling
+
+##### 2F-2: Zero-Copy Infrastructure
+- [ ] **ZCOPY-001**: Lock-free buffer pool allocator
+- [ ] **ZCOPY-002**: Pre-registered buffer table
+- [ ] **ZCOPY-003**: DMA address cache
+- [ ] **ZCOPY-004**: IOMMU mapping for buffer pool
+- [ ] **ZCOPY-005**: Fixed file descriptor table
+- [ ] **ZCOPY-006**: Buffer select mechanism
+- [ ] **ZCOPY-007**: Splice/sendfile support
+
+##### 2F-3: Polled I/O Engine
+- [ ] **POLL-001**: Poll-mode VirtIO-Block driver
+- [ ] **POLL-002**: Poll-mode NVMe driver
+- [ ] **POLL-003**: Per-CPU poll contexts
+- [ ] **POLL-004**: Adaptive polling (busy → interrupt)
+- [ ] **POLL-005**: CPU affinity for poll threads
+- [ ] **POLL-006**: Polling power management
+
+##### 2F-4: Batched Submission
+- [ ] **BATCH-001**: Multi-submit (32+ SQEs per syscall)
+- [ ] **BATCH-002**: Submit-and-wait (combined operation)
+- [ ] **BATCH-003**: Drain semantics
+- [ ] **BATCH-004**: Completion coalescing
+- [ ] **BATCH-005**: Vectored I/O (readv/writev)
+
+##### 2F-5: Lock-Free Filesystem
+- [ ] **LFFS-001**: RCU core infrastructure
+- [ ] **LFFS-002**: Epoch-based memory reclamation
+- [ ] **LFFS-003**: Lock-free inode cache (hash table)
+- [ ] **LFFS-004**: Lock-free dentry cache
+- [ ] **LFFS-005**: Per-CPU block allocator
+- [ ] **LFFS-006**: Lock-free free space bitmap
+- [ ] **LFFS-007**: Lazy writeback queue
+
+##### 2F-6: Direct Device Access (Userspace Driver)
+- [ ] **DIRECT-001**: VFIO driver binding framework
+- [ ] **DIRECT-002**: Userspace MMIO mapping
+- [ ] **DIRECT-003**: Userspace interrupt handling
+- [ ] **DIRECT-004**: DMA buffer management
+- [ ] **DIRECT-005**: NVMe userspace library
+- [ ] **DIRECT-006**: Capability-based access control
+- [ ] **DIRECT-007**: IOMMU enforcement
+
+##### 2F-7: Benchmarking & Optimization
+- [ ] **BENCH-001**: fio-compatible benchmark tool
+- [ ] **BENCH-002**: Latency histogram collection
+- [ ] **BENCH-003**: IOPS measurement
+- [ ] **BENCH-004**: CPU profiling integration
+- [ ] **BENCH-005**: Regression test suite
+- [ ] **BENCH-006**: Comparison with Linux io_uring
 
 ### Priority 3: Drivers (Hardware Support)
 
