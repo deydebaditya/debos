@@ -153,8 +153,62 @@ debos> info          # System information
 debos> mem           # Memory statistics
 debos> threads       # List threads
 debos> uptime        # Show uptime
+
+# Filesystem commands (RamFS)
+debos> pwd           # Print working directory
+debos> ls            # List directory
+debos> mkdir test    # Create directory
+debos> cat file.txt  # Read file
+
+# Block device commands (VirtIO)
+debos> disk          # Show block device info
+debos> mount         # Mount FAT32 filesystem
+debos> fatls /       # List FAT32 directory
+debos> fatcat file   # Read FAT32 file
+
 debos> clear         # Clear screen
 debos> exit          # Exit shell
+```
+
+## Testing with Disk Images
+
+DebOS supports VirtIO block devices and FAT32 filesystems:
+
+```bash
+# Create a test disk with FAT32 (requires mtools)
+brew install mtools  # macOS
+make new-disk        # Creates test_disk.img (16 MB FAT32)
+
+# Add files to the disk
+echo "Hello DebOS!" > /tmp/hello.txt
+mcopy -i test_disk.img /tmp/hello.txt ::HELLO.TXT
+
+# Run with the disk attached
+make run-arm-disk
+
+# In the DebOS shell:
+debos> disk          # Shows: VirtIO-Block: 32768 sectors
+debos> mount         # Mounts FAT32
+debos> fatls /       # Lists files
+debos> fatcat hello.txt  # Reads file content
+```
+
+## ⚠️ Storage Safety
+
+**Your MacBook's storage is completely protected during development:**
+
+| Layer | Protection |
+|-------|------------|
+| **QEMU Virtualization** | Complete hardware isolation - guest OS cannot access host devices |
+| **File-Backed Disks** | Only uses `.img` files, never raw block devices (`/dev/disk*`) |
+| **Makefile Guards** | All disk commands explicitly use file-backed images only |
+| **No Root Required** | Development runs entirely in userspace |
+
+The VirtIO block driver in DebOS can only access the virtual disk image provided by QEMU. There is no code path that could access your actual Mac storage.
+
+```bash
+# These are the ONLY disk operations used:
+-drive file=test_disk.img,format=raw,if=none,id=hd0  # File-backed only!
 ```
 
 ## Development on Apple Silicon Mac
@@ -213,21 +267,30 @@ Note: x86_64 emulation on Apple Silicon is functional but slower than native AAr
 - [x] Memory management (buddy allocator, heap)
 - [x] Thread scheduler (O(1) priority-based)
 - [x] Context switching (both architectures)
-- [x] IPC primitives
-- [x] System call interface
+- [x] IPC primitives with direct switch optimization
+- [x] System call interface (x86_64 syscall, AArch64 SVC)
 - [x] Capability system
 - [x] Interactive kernel shell
 
-### Phase 2: Core Drivers (Planned)
-- [ ] VirtIO-Block driver
+### Phase 2: Core Drivers 🔄 In Progress
+- [x] In-kernel RamFS filesystem
+- [x] VirtIO subsystem (MMIO transport)
+- [x] VirtIO-Block driver
+- [x] FAT32 filesystem (read support)
 - [ ] VirtIO-Net driver
-- [ ] VFS Server
-- [ ] Network Server
+- [ ] VFS Server (userspace)
+- [ ] Network Server (userspace)
 
 ### Phase 3: AI Layer (Planned)
 - [ ] Intent Engine
 - [ ] Generative UI (GenShell)
 - [ ] ONNX Runtime integration
+
+### Phase 4: Advanced Concurrency (Planned)
+- [ ] Green threading (M:N model)
+- [ ] Work-stealing scheduler
+- [ ] Async I/O subsystem
+- [ ] GPU compute integration (opt-in)
 
 ## Contributing
 

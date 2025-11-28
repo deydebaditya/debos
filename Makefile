@@ -1,5 +1,11 @@
 # DebOS Makefile
 # Supports x86_64 and AArch64 architectures
+#
+# SAFETY NOTE:
+# All disk operations use file-backed disk images (*.img), NOT raw block devices.
+# QEMU provides complete isolation from host storage.
+# The guest OS can only access virtual disks provided explicitly via -drive flags.
+# Your MacBook's storage is completely safe during development and testing.
 
 .PHONY: help build-x86 build-arm run-x86 run-arm clean docker-build docker-run-x86 docker-run-arm check fmt
 
@@ -84,13 +90,27 @@ run-arm: build-arm
 	$(QEMU_ARM) -kernel $(ARM_KERNEL)
 
 # Run AArch64 with VirtIO disk attached
-run-arm-disk: build-arm
+# SAFETY: Only uses file-backed disk images, never raw block devices
+run-arm-disk: build-arm test_disk.img
 	@echo "Running DebOS kernel in QEMU (AArch64) with disk..."
+	@echo "SAFETY: Using file-backed disk image (test_disk.img), host storage is protected"
 	@echo "Press Ctrl+A then X to exit QEMU"
-	@[ -f test_disk.img ] || dd if=/dev/zero of=test_disk.img bs=1M count=8 2>/dev/null
 	$(QEMU_ARM) -kernel $(ARM_KERNEL) \
 		-drive file=test_disk.img,format=raw,if=none,id=hd0 \
 		-device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0
+
+# Create a test disk image (safe, file-backed only)
+test_disk.img:
+	@echo "Creating test disk image (16 MB, FAT32)..."
+	@dd if=/dev/zero of=test_disk.img bs=1M count=16 2>/dev/null
+	@command -v mformat >/dev/null 2>&1 && mformat -i test_disk.img -F -v "DEBOS" :: || \
+		echo "Note: Install mtools (brew install mtools) to auto-format as FAT32"
+	@echo "Created test_disk.img (safe file-backed disk image)"
+
+# Create a fresh test disk (deletes existing)
+new-disk:
+	@rm -f test_disk.img
+	@$(MAKE) test_disk.img
 
 # Check both architectures
 check:
