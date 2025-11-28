@@ -51,6 +51,62 @@ pub struct Stat {
     pub inode_type: InodeType,
     pub size: usize,
     pub permissions: u16,
+    /// Owner user ID
+    pub uid: u32,
+    /// Owner group ID
+    pub gid: u32,
+}
+
+/// Default file permissions (rw-r--r--)
+pub const DEFAULT_FILE_MODE: u16 = 0o644;
+
+/// Default directory permissions (rwxr-xr-x)
+pub const DEFAULT_DIR_MODE: u16 = 0o755;
+
+/// Check if user has permission to access file
+pub fn check_permission(stat: &Stat, uid: u32, gid: u32, groups: &[u32], access: AccessMode) -> bool {
+    // Root can access anything (except execute if no execute bit at all)
+    if uid == 0 {
+        if access == AccessMode::Execute {
+            // Root needs at least one execute bit
+            return (stat.permissions & 0o111) != 0;
+        }
+        return true;
+    }
+    
+    let mode = stat.permissions;
+    
+    // Check owner permissions
+    if stat.uid == uid {
+        let perm = (mode >> 6) & 0o7;
+        return has_permission(perm, access);
+    }
+    
+    // Check group permissions
+    if stat.gid == gid || groups.contains(&stat.gid) {
+        let perm = (mode >> 3) & 0o7;
+        return has_permission(perm, access);
+    }
+    
+    // Check other permissions
+    let perm = mode & 0o7;
+    has_permission(perm, access)
+}
+
+fn has_permission(perm: u16, access: AccessMode) -> bool {
+    match access {
+        AccessMode::Read => (perm & 0o4) != 0,
+        AccessMode::Write => (perm & 0o2) != 0,
+        AccessMode::Execute => (perm & 0o1) != 0,
+    }
+}
+
+/// Access mode for permission checking
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessMode {
+    Read,
+    Write,
+    Execute,
 }
 
 /// Directory entry

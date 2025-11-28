@@ -28,6 +28,7 @@ pub mod capability;
 pub mod drivers;
 pub mod fs;
 pub mod shell;
+pub mod security;
 
 // ============================================================================
 // Common kernel initialization
@@ -50,6 +51,8 @@ pub fn kernel_init() -> ! {
     println!("[..] Initializing filesystem...");
     fs::init();
     println!("[OK] Filesystem initialized");
+    
+    security::init();
     
     // Enable interrupts
     println!("[..] Enabling interrupts...");

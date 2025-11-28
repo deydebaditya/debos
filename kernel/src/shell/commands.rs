@@ -54,6 +54,18 @@ pub fn help(_args: &[&str]) {
     println!("  fatwrite <f> t - Write text to FAT32 file");
     println!("  fatrm <file>   - Delete FAT32 file");
     println!();
+    println!("User & Security:");
+    println!("  whoami         - Show current user");
+    println!("  id             - Show user/group info");
+    println!("  users          - List all users");
+    println!("  groups         - List all groups");
+    println!("  useradd <name> - Create new user");
+    println!("  userdel <name> - Delete user");
+    println!("  passwd [user]  - Change password");
+    println!("  su [user]      - Switch user");
+    println!("  sudo <cmd>     - Run as admin");
+    println!("  login          - Login as user");
+    println!();
     println!("Other:");
     println!("  echo <text>    - Echo text to console");
     println!();
@@ -950,4 +962,529 @@ fn print_tree(path: &str, prefix: &str, is_last: bool) -> Result<(), fs::FsError
     }
     
     Ok(())
+}
+
+// ============================================================================
+// User & Security Commands
+// ============================================================================
+
+/// Show current user
+pub fn whoami(_args: &[&str]) {
+    use crate::security;
+    
+    let uid = security::current_uid();
+    if let Some(username) = security::database::get_username(uid) {
+        println!("{}", username);
+    } else {
+        println!("uid={}", uid);
+    }
+}
+
+/// Show user and group info
+pub fn id(args: &[&str]) {
+    use crate::security::{self, database, identity::GroupId};
+    
+    let username = if args.is_empty() {
+        let uid = security::current_uid();
+        database::get_username(uid).unwrap_or_else(|| alloc::format!("{}", uid))
+    } else {
+        alloc::string::String::from(args[0])
+    };
+    
+    if let Some(user) = database::get_user_by_name(&username) {
+        print!("uid={}({}) ", user.uid, user.username);
+        
+        if let Some(group) = database::get_group_by_gid(user.gid) {
+            print!("gid={}({}) ", user.gid, group.name);
+        } else {
+            print!("gid={} ", user.gid);
+        }
+        
+        print!("groups=");
+        let mut first = true;
+        for gid in &user.groups {
+            if !first {
+                print!(",");
+            }
+            if let Some(group) = database::get_group_by_gid(*gid) {
+                print!("{}({})", gid, group.name);
+            } else {
+                print!("{}", gid);
+            }
+            first = false;
+        }
+        println!();
+        
+        if user.is_admin {
+            println!("  (administrator)");
+        }
+    } else {
+        println!("id: '{}': no such user", username);
+    }
+}
+
+/// List all users
+pub fn users_list(_args: &[&str]) {
+    use crate::security::database;
+    
+    println!("Users:");
+    println!("{:<12} {:>6} {:>6} {:<8} {}", "USERNAME", "UID", "GID", "STATUS", "HOME");
+    println!("{}", "-".repeat(60));
+    
+    for user in database::list_users() {
+        let status = match user.status {
+            crate::security::identity::AccountStatus::Active => "active",
+            crate::security::identity::AccountStatus::Locked => "locked",
+            crate::security::identity::AccountStatus::Disabled => "disabled",
+            crate::security::identity::AccountStatus::Expired => "expired",
+        };
+        
+        let admin_mark = if user.is_admin { "*" } else { " " };
+        
+        println!("{:<12} {:>6} {:>6} {:<8}{} {}", 
+            user.username, user.uid, user.gid, status, admin_mark, user.home_dir);
+    }
+    println!();
+    println!("* = administrator (wheel group member)");
+}
+
+/// List all groups
+pub fn groups_list(_args: &[&str]) {
+    use crate::security::database;
+    
+    println!("Groups:");
+    println!("{:<16} {:>6} {}", "NAME", "GID", "MEMBERS");
+    println!("{}", "-".repeat(50));
+    
+    for group in database::list_groups() {
+        let members: alloc::vec::Vec<_> = group.members.iter()
+            .filter_map(|uid| database::get_username(*uid))
+            .collect();
+        
+        println!("{:<16} {:>6} {}", group.name, group.gid, members.join(", "));
+    }
+}
+
+/// Create a new user
+pub fn useradd(args: &[&str]) {
+    use crate::security::{self, database, auth};
+    
+    // Check if running as admin
+    if !security::is_root() && !security::has_capability(security::capability::Capability::DebosUserAdmin) {
+        // Check if current user is admin
+        let uid = security::current_uid();
+        if let Some(user) = database::get_user_by_uid(uid) {
+            if !user.is_admin {
+                println!("useradd: permission denied (requires admin)");
+                return;
+            }
+        } else {
+            println!("useradd: permission denied");
+            return;
+        }
+    }
+    
+    if args.is_empty() {
+        println!("Usage: useradd <username> [-a] [-p <password>]");
+        println!("  -a          Make user an administrator");
+        println!("  -p <pass>   Set initial password");
+        return;
+    }
+    
+    let username = args[0];
+    let mut is_admin = false;
+    let mut password: Option<&str> = None;
+    
+    let mut i = 1;
+    while i < args.len() {
+        match args[i] {
+            "-a" => is_admin = true,
+            "-p" if i + 1 < args.len() => {
+                password = Some(args[i + 1]);
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    
+    match database::create_user(username, "", None, None, is_admin, password) {
+        Ok(user) => {
+            println!("User '{}' created (uid={})", username, user.uid);
+            if is_admin {
+                println!("  User is an administrator");
+            }
+            if password.is_none() {
+                println!("  No password set (passwordless login)");
+            }
+        }
+        Err(e) => {
+            println!("useradd: {}", e);
+        }
+    }
+}
+
+/// Delete a user
+pub fn userdel(args: &[&str]) {
+    use crate::security::{self, database};
+    
+    // Check permissions
+    if !security::is_root() {
+        let uid = security::current_uid();
+        if let Some(user) = database::get_user_by_uid(uid) {
+            if !user.is_admin {
+                println!("userdel: permission denied (requires admin)");
+                return;
+            }
+        } else {
+            println!("userdel: permission denied");
+            return;
+        }
+    }
+    
+    if args.is_empty() {
+        println!("Usage: userdel <username>");
+        return;
+    }
+    
+    let username = args[0];
+    
+    match database::delete_user(username) {
+        Ok(_) => println!("User '{}' deleted", username),
+        Err(e) => println!("userdel: {}", e),
+    }
+}
+
+/// Change password
+pub fn passwd(args: &[&str]) {
+    use crate::security::{self, database, auth};
+    use crate::shell::input;
+    
+    let target_user = if args.is_empty() {
+        // Change own password
+        let uid = security::current_uid();
+        database::get_username(uid).unwrap_or_else(|| alloc::format!("uid={}", uid))
+    } else {
+        // Changing another user's password requires admin
+        if !security::is_root() {
+            let uid = security::current_uid();
+            if let Some(user) = database::get_user_by_uid(uid) {
+                if !user.is_admin {
+                    println!("passwd: permission denied (requires admin to change other's password)");
+                    return;
+                }
+            }
+        }
+        alloc::string::String::from(args[0])
+    };
+    
+    // Check if user exists
+    if database::get_user_by_name(&target_user).is_none() {
+        println!("passwd: user '{}' does not exist", target_user);
+        return;
+    }
+    
+    println!("Changing password for {}", target_user);
+    print!("New password (empty for no password): ");
+    
+    // Read password (we don't have proper no-echo, so just read)
+    if let Some(password) = read_password_line() {
+        match auth::set_password(&target_user, &password) {
+            Ok(_) => {
+                if password.is_empty() {
+                    println!("Password removed (passwordless login enabled)");
+                } else {
+                    println!("Password updated successfully");
+                }
+            }
+            Err(e) => println!("passwd: {}", e),
+        }
+    }
+}
+
+/// Read a password line (simple version)
+fn read_password_line() -> Option<alloc::string::String> {
+    use crate::shell::input;
+    
+    let mut buffer = alloc::string::String::new();
+    
+    loop {
+        if let Some(c) = input::read_char() {
+            match c {
+                b'\r' | b'\n' => {
+                    println!();
+                    return Some(buffer);
+                }
+                0x7F | 0x08 => {
+                    if !buffer.is_empty() {
+                        buffer.pop();
+                    }
+                }
+                0x03 => {
+                    println!("^C");
+                    return None;
+                }
+                c if c >= 0x20 && c < 0x7F => {
+                    buffer.push(c as char);
+                    // Don't echo password
+                }
+                _ => {}
+            }
+        }
+        
+        for _ in 0..1000 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+/// Switch user (su)
+pub fn su(args: &[&str]) {
+    use crate::security::{self, database, auth};
+    
+    let target_user = if args.is_empty() {
+        alloc::string::String::from("root")
+    } else {
+        alloc::string::String::from(args[0])
+    };
+    
+    // Check if user exists
+    let user = match database::get_user_by_name(&target_user) {
+        Some(u) => u,
+        None => {
+            println!("su: user '{}' does not exist", target_user);
+            return;
+        }
+    };
+    
+    // Check account status
+    if user.status != crate::security::identity::AccountStatus::Active {
+        println!("su: account is not active");
+        return;
+    }
+    
+    // For switching to root, check if current user is admin
+    if target_user == "root" {
+        let current_uid = security::current_uid();
+        if let Some(current_user) = database::get_user_by_uid(current_uid) {
+            if !current_user.is_admin {
+                println!("su: permission denied (requires admin privileges)");
+                return;
+            }
+        }
+    }
+    
+    // Authenticate if password is required
+    if !auth::is_passwordless(&target_user) {
+        print!("Password: ");
+        if let Some(password) = read_password_line() {
+            match auth::authenticate(&target_user, &password) {
+                auth::AuthResult::Success(_) | auth::AuthResult::NoPasswordRequired(_) => {
+                    // Continue
+                }
+                _ => {
+                    println!("su: authentication failure");
+                    return;
+                }
+            }
+        } else {
+            return;
+        }
+    }
+    
+    // Create new credentials
+    let creds = auth::create_session(&user);
+    
+    // Set credentials for current thread
+    if let Err(e) = crate::scheduler::set_credentials(creds) {
+        println!("su: failed to switch user: {}", e);
+        return;
+    }
+    
+    println!("Switched to user: {}", target_user);
+}
+
+/// Run command as admin (sudo)
+pub fn sudo(args: &[&str]) {
+    use crate::security::{self, database, auth, policy};
+    
+    if args.is_empty() {
+        println!("Usage: sudo <command> [args...]");
+        return;
+    }
+    
+    // Check if current user is admin
+    let current_uid = security::current_uid();
+    let current_user = match database::get_user_by_uid(current_uid) {
+        Some(u) => u,
+        None => {
+            println!("sudo: unknown user");
+            return;
+        }
+    };
+    
+    if !current_user.is_admin {
+        println!("sudo: {} is not in the sudoers file. This incident will be reported.", 
+            current_user.username);
+        policy::audit_log(
+            policy::AuditEventType::SudoFailed,
+            &current_user.username,
+            &alloc::format!("attempted: {}", args.join(" ")),
+            false,
+        );
+        return;
+    }
+    
+    // Authenticate if policy requires
+    let sec_policy = policy::get_policy();
+    if sec_policy.sudo_requires_password && !auth::is_passwordless(&current_user.username) {
+        print!("[sudo] password for {}: ", current_user.username);
+        if let Some(password) = read_password_line() {
+            match auth::authenticate(&current_user.username, &password) {
+                auth::AuthResult::Success(_) | auth::AuthResult::NoPasswordRequired(_) => {}
+                _ => {
+                    println!("sudo: authentication failure");
+                    policy::audit_log(
+                        policy::AuditEventType::SudoFailed,
+                        &current_user.username,
+                        "authentication failure",
+                        false,
+                    );
+                    return;
+                }
+            }
+        } else {
+            return;
+        }
+    }
+    
+    // Temporarily elevate to root
+    let old_creds = crate::scheduler::current_credentials();
+    
+    // Create root credentials
+    let root_creds = crate::security::credentials::ProcessCredentials::root();
+    
+    if let Err(e) = crate::scheduler::set_credentials(root_creds) {
+        println!("sudo: failed to elevate: {}", e);
+        return;
+    }
+    
+    // Log the sudo action
+    policy::audit_log(
+        policy::AuditEventType::Sudo,
+        &current_user.username,
+        &args.join(" "),
+        true,
+    );
+    
+    // Execute the command (would normally call the command handler here)
+    println!("[executing as root: {}]", args.join(" "));
+    
+    // Note: In a real implementation, we'd execute the command here
+    // For now, just demonstrate the privilege elevation
+    
+    // Restore original credentials
+    if let Some(creds) = old_creds {
+        let _ = crate::scheduler::set_credentials(creds);
+    }
+}
+
+/// Login command
+pub fn login(_args: &[&str]) {
+    use crate::security::{self, database, auth};
+    
+    println!("DebOS Login");
+    println!();
+    
+    print!("Username: ");
+    if let Some(username) = read_input_line() {
+        let username = username.trim();
+        
+        // Check if user exists
+        if database::get_user_by_name(username).is_none() {
+            println!("Login incorrect");
+            return;
+        }
+        
+        // Check if password required
+        if auth::is_passwordless(username) {
+            // Direct login
+            match auth::authenticate(username, "") {
+                auth::AuthResult::Success(user) | auth::AuthResult::NoPasswordRequired(user) => {
+                    let creds = auth::create_session(&user);
+                    if let Err(e) = crate::scheduler::set_credentials(creds) {
+                        println!("Login failed: {}", e);
+                        return;
+                    }
+                    println!("Welcome, {}!", username);
+                }
+                _ => {
+                    println!("Login incorrect");
+                }
+            }
+        } else {
+            print!("Password: ");
+            if let Some(password) = read_password_line() {
+                match auth::authenticate(username, &password) {
+                    auth::AuthResult::Success(user) => {
+                        let creds = auth::create_session(&user);
+                        if let Err(e) = crate::scheduler::set_credentials(creds) {
+                            println!("Login failed: {}", e);
+                            return;
+                        }
+                        println!("Welcome, {}!", username);
+                    }
+                    auth::AuthResult::InvalidPassword => {
+                        println!("Login incorrect");
+                    }
+                    auth::AuthResult::AccountLocked => {
+                        println!("Account is locked. Try again later.");
+                    }
+                    auth::AuthResult::AccountDisabled => {
+                        println!("Account is disabled.");
+                    }
+                    _ => {
+                        println!("Login failed");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Read input line
+fn read_input_line() -> Option<alloc::string::String> {
+    use crate::shell::input;
+    
+    let mut buffer = alloc::string::String::new();
+    
+    loop {
+        if let Some(c) = input::read_char() {
+            match c {
+                b'\r' | b'\n' => {
+                    println!();
+                    return Some(buffer);
+                }
+                0x7F | 0x08 => {
+                    if !buffer.is_empty() {
+                        buffer.pop();
+                        print!("\x08 \x08");
+                    }
+                }
+                0x03 => {
+                    println!("^C");
+                    return None;
+                }
+                c if c >= 0x20 && c < 0x7F => {
+                    buffer.push(c as char);
+                    print!("{}", c as char);
+                }
+                _ => {}
+            }
+        }
+        
+        for _ in 0..1000 {
+            core::hint::spin_loop();
+        }
+    }
 }

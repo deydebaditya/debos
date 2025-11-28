@@ -287,3 +287,29 @@ pub fn on_timer_tick() {
 pub fn ticks() -> u64 {
     TICKS.load(Ordering::Relaxed)
 }
+
+/// Get the current thread's credentials
+pub fn current_credentials() -> Option<crate::security::credentials::ProcessCredentials> {
+    SCHEDULER.lock().current.as_ref().map(|t| t.credentials.clone())
+}
+
+/// Set the current thread's credentials
+pub fn set_credentials(creds: crate::security::credentials::ProcessCredentials) -> Result<(), &'static str> {
+    let mut scheduler = SCHEDULER.lock();
+    if let Some(current) = scheduler.current.as_mut() {
+        current.credentials = creds;
+        Ok(())
+    } else {
+        Err("No current thread")
+    }
+}
+
+/// Get the current thread's user ID
+pub fn current_uid() -> Option<crate::security::identity::UserId> {
+    SCHEDULER.lock().current.as_ref().map(|t| t.credentials.uid)
+}
+
+/// Get the current thread's effective user ID
+pub fn current_euid() -> Option<crate::security::identity::UserId> {
+    SCHEDULER.lock().current.as_ref().map(|t| t.credentials.euid)
+}

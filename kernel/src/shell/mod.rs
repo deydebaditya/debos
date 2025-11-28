@@ -177,8 +177,20 @@ impl Shell {
             "stat" => commands::stat_cmd(args),
             "tree" => commands::tree(args),
             
+            // User and security commands
+            "whoami" => commands::whoami(args),
+            "id" => commands::id(args),
+            "users" => commands::users_list(args),
+            "groups" => commands::groups_list(args),
+            "useradd" => commands::useradd(args),
+            "userdel" => commands::userdel(args),
+            "passwd" => commands::passwd(args),
+            "su" => commands::su(args),
+            "sudo" => commands::sudo(args),
+            "login" => commands::login(args),
+            
             // Exit
-            "exit" | "quit" => {
+            "exit" | "quit" | "logout" => {
                 self.running = false;
             }
             

@@ -6,6 +6,7 @@ use alloc::boxed::Box;
 use core::fmt;
 
 use crate::arch::ArchContext;
+use crate::security::credentials::ProcessCredentials;
 
 /// Unique identifier for a thread
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -74,15 +75,28 @@ pub struct Thread {
     pub cpu_time: u64,
     /// Thread name (for debugging)
     pub name: [u8; 32],
+    /// Process credentials (user, group, capabilities)
+    pub credentials: ProcessCredentials,
 }
 
 impl Thread {
-    /// Create a new thread
+    /// Create a new thread with default (debos) credentials
     pub fn new(
         id: ThreadId,
         priority: u8,
         context: ArchContext,
         kernel_stack: Box<[u8]>,
+    ) -> Self {
+        Self::with_credentials(id, priority, context, kernel_stack, ProcessCredentials::default())
+    }
+    
+    /// Create a new thread with specific credentials
+    pub fn with_credentials(
+        id: ThreadId,
+        priority: u8,
+        context: ArchContext,
+        kernel_stack: Box<[u8]>,
+        credentials: ProcessCredentials,
     ) -> Self {
         Thread {
             id,
@@ -95,7 +109,18 @@ impl Thread {
             cpu_affinity: None,
             cpu_time: 0,
             name: [0; 32],
+            credentials,
         }
+    }
+    
+    /// Create a kernel thread (runs as root)
+    pub fn kernel(
+        id: ThreadId,
+        priority: u8,
+        context: ArchContext,
+        kernel_stack: Box<[u8]>,
+    ) -> Self {
+        Self::with_credentials(id, priority, context, kernel_stack, ProcessCredentials::kernel())
     }
     
     /// Calculate time slice based on priority

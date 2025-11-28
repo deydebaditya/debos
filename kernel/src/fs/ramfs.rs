@@ -26,6 +26,10 @@ pub struct Inode {
     pub size: usize,
     /// Unix-style permissions (e.g., 0o755)
     pub permissions: u16,
+    /// Owner user ID
+    pub uid: u32,
+    /// Owner group ID
+    pub gid: u32,
     /// File data (for files)
     pub data: Vec<u8>,
     /// Child inode IDs (for directories)
@@ -37,12 +41,17 @@ pub struct Inode {
 impl Inode {
     /// Create a new file inode
     pub fn new_file(id: u64, name: String, parent: u64) -> Self {
+        // Get current user's uid/gid if available
+        let (uid, gid) = get_current_owner();
+        
         Inode {
             id,
             inode_type: InodeType::File,
             name,
             size: 0,
             permissions: 0o644,
+            uid,
+            gid,
             data: Vec::new(),
             children: Vec::new(),
             parent: Some(parent),
@@ -51,15 +60,36 @@ impl Inode {
     
     /// Create a new directory inode
     pub fn new_directory(id: u64, name: String, parent: Option<u64>) -> Self {
+        // Get current user's uid/gid if available
+        let (uid, gid) = get_current_owner();
+        
         Inode {
             id,
             inode_type: InodeType::Directory,
             name,
             size: 0,
             permissions: 0o755,
+            uid,
+            gid,
             data: Vec::new(),
             children: Vec::new(),
             parent,
+        }
+    }
+    
+    /// Create a new file inode with specific owner
+    pub fn new_file_with_owner(id: u64, name: String, parent: u64, uid: u32, gid: u32) -> Self {
+        Inode {
+            id,
+            inode_type: InodeType::File,
+            name,
+            size: 0,
+            permissions: 0o644,
+            uid,
+            gid,
+            data: Vec::new(),
+            children: Vec::new(),
+            parent: Some(parent),
         }
     }
     
@@ -70,7 +100,20 @@ impl Inode {
             inode_type: self.inode_type,
             size: self.size,
             permissions: self.permissions,
+            uid: self.uid,
+            gid: self.gid,
         }
+    }
+}
+
+/// Get current user's uid/gid for file ownership
+fn get_current_owner() -> (u32, u32) {
+    // Try to get from current thread's credentials
+    if let Some(creds) = crate::scheduler::current_credentials() {
+        (creds.uid.as_raw(), creds.gid.as_raw())
+    } else {
+        // Kernel context - root
+        (0, 0)
     }
 }
 
