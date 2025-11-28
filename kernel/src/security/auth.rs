@@ -3,9 +3,10 @@
 //! Handles user authentication, password management, and session control.
 //!
 //! ## Password Security
-//! - Passwords are hashed using a secure algorithm (SHA-256 + salt for now)
+//! - Passwords are hashed using Argon2id (memory-hard algorithm)
 //! - No plaintext passwords are ever stored
 //! - Constant-time comparison to prevent timing attacks
+//! - 128-bit random salts per password
 //!
 //! ## Default Configuration
 //! - `debos` user has no password (empty password allowed)
@@ -117,15 +118,14 @@ impl PasswordEntry {
         self.has_password = false;
     }
     
-    /// Verify password
+    /// Verify password using Argon2id
     pub fn verify(&self, password: &str) -> bool {
         if !self.has_password {
             // No password required, any input is valid (including empty)
             return true;
         }
         
-        let test_hash = hash_password(password, &self.salt);
-        constant_time_compare(&self.hash, &test_hash)
+        verify_password(password, &self.salt, &self.hash)
     }
     
     /// Check if account is locked
@@ -174,34 +174,21 @@ fn generate_salt() -> [u8; 16] {
     salt
 }
 
-/// Hash password with salt (SHA-256 equivalent, simplified)
-/// In production, use Argon2id
+/// Hash password with salt using Argon2id
 fn hash_password(password: &str, salt: &[u8; 16]) -> Vec<u8> {
-    // Simple hash for now - concatenate salt + password and hash
-    // This is NOT cryptographically secure, but works for demonstration
-    // TODO: Implement proper Argon2id
+    use super::argon2::{argon2id_hash, Argon2Params};
     
-    let mut data: Vec<u8> = Vec::new();
-    data.extend_from_slice(salt);
-    data.extend_from_slice(password.as_bytes());
+    // Use interactive parameters for login (faster but still secure)
+    let params = Argon2Params::interactive();
+    argon2id_hash(password.as_bytes(), salt, &params)
+}
+
+/// Verify password against stored hash using Argon2id
+fn verify_password(password: &str, salt: &[u8; 16], expected: &[u8]) -> bool {
+    use super::argon2::{argon2id_verify, Argon2Params};
     
-    // Simple hash function (FNV-1a style, extended)
-    let mut hash = [0u8; 32];
-    let mut h: u64 = 0xcbf29ce484222325; // FNV offset basis
-    
-    for byte in data.iter() {
-        h ^= *byte as u64;
-        h = h.wrapping_mul(0x100000001b3); // FNV prime
-    }
-    
-    // Expand to 32 bytes
-    for i in 0..4 {
-        let chunk = h.wrapping_add(i as u64 * 0x9e3779b97f4a7c15);
-        let bytes = chunk.to_le_bytes();
-        hash[i * 8..(i + 1) * 8].copy_from_slice(&bytes);
-    }
-    
-    hash.to_vec()
+    let params = Argon2Params::interactive();
+    argon2id_verify(password.as_bytes(), salt, expected, &params)
 }
 
 /// Constant-time comparison to prevent timing attacks
@@ -325,6 +312,37 @@ pub fn unlock_account(username: &str) -> Result<(), &'static str> {
 /// Session tracking
 static NEXT_SESSION_ID: AtomicU32 = AtomicU32::new(1);
 
+/// Active session storage (persists across shell restarts)
+use alloc::collections::BTreeMap;
+use lazy_static::lazy_static;
+
+lazy_static! {
+    /// Active sessions by session ID
+    static ref ACTIVE_SESSIONS: Mutex<BTreeMap<u32, SessionInfo>> = Mutex::new(BTreeMap::new());
+    
+    /// Current session for the console
+    static ref CONSOLE_SESSION: Mutex<Option<u32>> = Mutex::new(None);
+}
+
+/// Session information
+#[derive(Clone)]
+pub struct SessionInfo {
+    /// Session ID
+    pub id: u32,
+    /// Username
+    pub username: String,
+    /// User ID
+    pub uid: super::identity::UserId,
+    /// Group ID
+    pub gid: super::identity::GroupId,
+    /// Is admin
+    pub is_admin: bool,
+    /// Login time (ticks)
+    pub login_time: u64,
+    /// Last activity time
+    pub last_activity: u64,
+}
+
 /// Create a new session for authenticated user
 pub fn create_session(user: &User) -> ProcessCredentials {
     let session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst);
@@ -337,7 +355,81 @@ pub fn create_session(user: &User) -> ProcessCredentials {
     );
     creds.session_id = session_id;
     
+    // Store session info
+    let session_info = SessionInfo {
+        id: session_id,
+        username: user.username.clone(),
+        uid: user.uid,
+        gid: user.gid,
+        is_admin: user.is_admin,
+        login_time: crate::scheduler::ticks(),
+        last_activity: crate::scheduler::ticks(),
+    };
+    
+    ACTIVE_SESSIONS.lock().insert(session_id, session_info);
+    
     creds
+}
+
+/// Set the console session (persists the current user)
+pub fn set_console_session(session_id: u32) {
+    *CONSOLE_SESSION.lock() = Some(session_id);
+}
+
+/// Get the console session
+pub fn get_console_session() -> Option<u32> {
+    *CONSOLE_SESSION.lock()
+}
+
+/// Get session info by ID
+pub fn get_session(session_id: u32) -> Option<SessionInfo> {
+    ACTIVE_SESSIONS.lock().get(&session_id).cloned()
+}
+
+/// End a session
+pub fn end_session(session_id: u32) {
+    ACTIVE_SESSIONS.lock().remove(&session_id);
+    
+    // Clear console session if it matches
+    let mut console = CONSOLE_SESSION.lock();
+    if *console == Some(session_id) {
+        *console = None;
+    }
+}
+
+/// Update session activity time
+pub fn touch_session(session_id: u32) {
+    if let Some(session) = ACTIVE_SESSIONS.lock().get_mut(&session_id) {
+        session.last_activity = crate::scheduler::ticks();
+    }
+}
+
+/// Get all active sessions
+pub fn list_sessions() -> Vec<SessionInfo> {
+    ACTIVE_SESSIONS.lock().values().cloned().collect()
+}
+
+/// Restore session from console (for shell restarts)
+pub fn restore_console_session() -> Option<ProcessCredentials> {
+    let session_id = get_console_session()?;
+    let session = get_session(session_id)?;
+    
+    // Look up user
+    let user = database::get_user_by_name(&session.username)?;
+    
+    // Update activity
+    touch_session(session_id);
+    
+    // Create credentials
+    let mut creds = ProcessCredentials::for_user(
+        user.uid,
+        user.gid,
+        user.groups.clone(),
+        user.is_admin,
+    );
+    creds.session_id = session_id;
+    
+    Some(creds)
 }
 
 /// Validate sudo access (user must be admin and authenticate)

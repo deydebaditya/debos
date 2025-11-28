@@ -19,6 +19,7 @@ pub mod auth;
 pub mod policy;
 pub mod database;
 pub mod capability;
+pub mod argon2;
 
 use alloc::string::String;
 use alloc::vec::Vec;

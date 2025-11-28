@@ -7,6 +7,8 @@ pub mod path;
 pub mod ramfs;
 pub mod vfs;
 pub mod fat32;
+pub mod ext4;
+pub mod permissions;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -147,6 +149,12 @@ pub enum FsError {
     TooManyOpenFiles,
     /// Invalid argument
     InvalidArgument,
+    /// Invalid filesystem format
+    InvalidFilesystem,
+    /// No filesystem mounted
+    NoFilesystem,
+    /// Operation not supported
+    NotSupported,
 }
 
 impl fmt::Display for FsError {
@@ -165,6 +173,9 @@ impl fmt::Display for FsError {
             FsError::InvalidFd => write!(f, "Bad file descriptor"),
             FsError::TooManyOpenFiles => write!(f, "Too many open files"),
             FsError::InvalidArgument => write!(f, "Invalid argument"),
+            FsError::InvalidFilesystem => write!(f, "Invalid filesystem"),
+            FsError::NoFilesystem => write!(f, "No filesystem mounted"),
+            FsError::NotSupported => write!(f, "Operation not supported"),
         }
     }
 }

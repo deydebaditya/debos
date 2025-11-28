@@ -213,6 +213,17 @@ pub mod KeyCode {
     pub const KEY_DELETE: u16 = 111;
     pub const KEY_RIGHTCTRL: u16 = 97;
     pub const KEY_RIGHTALT: u16 = 100;
+    
+    // Meta/Super/GUI keys
+    pub const KEY_LEFTMETA: u16 = 125;
+    pub const KEY_RIGHTMETA: u16 = 126;
+    
+    // Mouse buttons (BTN_ codes)
+    pub const BTN_LEFT: u16 = 0x110;
+    pub const BTN_RIGHT: u16 = 0x111;
+    pub const BTN_MIDDLE: u16 = 0x112;
+    pub const BTN_SIDE: u16 = 0x113;
+    pub const BTN_EXTRA: u16 = 0x114;
 }
 
 /// Convert scancode to ASCII (simple US layout)

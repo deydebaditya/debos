@@ -11,6 +11,7 @@ pub mod input;
 pub mod net;
 pub mod bus;
 pub mod usb;
+pub mod display;
 
 /// Initialize all drivers
 pub fn init() {
@@ -33,6 +34,9 @@ pub fn init() {
     
     // Initialize Network subsystem
     net::init();
+    
+    // Initialize Display subsystem
+    display::init();
     
     crate::println!("[OK] Drivers initialized");
 }

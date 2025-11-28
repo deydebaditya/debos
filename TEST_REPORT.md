@@ -375,11 +375,23 @@ fn argon2id_hash(password: &str, salt: &[u8]) -> [u8; 32] {
    - `arp` - Display ARP cache
    - `netstat` - Network statistics
 
-### Short-term Improvements (P2)
+### Short-term Improvements (P2) ✅ COMPLETE
 
-1. Replace placeholder password hash with actual Argon2id
-2. Add session persistence across shell restarts
-3. Implement file permissions checks in filesystem operations
+1. ✅ Replace placeholder password hash with Argon2id
+   - Full Argon2id implementation in `kernel/src/security/argon2.rs`
+   - BLAKE2b-based compression function
+   - Memory-hard hashing with configurable parameters
+   
+2. ✅ Session persistence across shell restarts
+   - Session tracking in `kernel/src/security/auth.rs`
+   - Console session storage
+   - Session restoration on shell restart
+   
+3. ✅ File permissions enforcement
+   - POSIX-style permissions in `kernel/src/fs/permissions.rs`
+   - Owner/group/other permission checking
+   - CAP_DAC_OVERRIDE capability support
+   - chmod/chown authorization checks
 
 ### Long-term Goals (P3) ✅ COMPLETE
 
@@ -487,12 +499,18 @@ debos> help
 3. **Password Hashing** - Upgrade to Argon2id
 4. **File Permissions** - Enforcement in fs operations
 
+### What's Now Implemented ✅
+
+1. **PCI Enumeration** - Full bus/device/function scanning
+2. **USB Stack** - xHCI controller, HID, Mass Storage drivers
+3. **Framebuffer** - VirtIO-GPU + text console
+4. **ext4 Filesystem** - Read support with extents
+
 ### What's Not Implemented ❌
 
-1. **PCI Enumeration** - Planned
-2. **USB Stack** - Planned
-3. **Framebuffer** - Planned
-4. **Userspace Servers** - Future phase
+1. **Userspace Servers** - Future phase (VFS, NetServer)
+2. **ext4 Write Support** - Read-only currently
+3. **USB Actual Transfers** - Framework ready, transfers TODO
 
 ---
 

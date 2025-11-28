@@ -976,14 +976,14 @@ qemu-system-x86_64 \
 
 #### Phase 2D-TODO: Remaining Items
 - [ ] **SRV-001**: VFS Server migration to userspace
-- [ ] **SRV-002**: ext4 filesystem driver
+- [x] **SRV-002**: ext4 filesystem driver
 - [x] **USB-001**: xHCI controller driver
 - [x] **USB-002**: USB device enumeration
-- [ ] **USB-003**: USB HID driver
-- [ ] **USB-004**: USB Mass Storage driver
+- [x] **USB-003**: USB HID driver (keyboard/mouse)
+- [x] **USB-004**: USB Mass Storage driver
 - [x] **DISP-001**: Framebuffer abstraction (VirtIO-GPU)
 - [x] **DISP-002**: VirtIO-GPU driver
-- [ ] **DISP-003**: Text console over framebuffer
+- [x] **DISP-003**: Text console over framebuffer
 
 #### Phase 2D-TODO: Infrastructure (Complete)
 - [x] **INFRA-001**: PCI/PCIe enumeration driver

@@ -5,6 +5,8 @@
 pub mod xhci;
 pub mod descriptor;
 pub mod device;
+pub mod hid;
+pub mod msc;
 
 use alloc::vec::Vec;
 use alloc::string::String;
