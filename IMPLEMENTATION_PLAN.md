@@ -598,6 +598,139 @@ parallel_compute(&mut data, |x| *x = (*x).sqrt());
 
 ---
 
+## Phase 5: User Management & Security (Months 9-11)
+
+**Goal:** Complete multi-user OS with enterprise-grade security  
+**Status:** Pending  
+**Test Criteria:** Multiple users with isolated processes, file permissions enforced
+
+> 📖 **Full Documentation:** See [docs/developer/USER_SECURITY_SYSTEM.md](docs/developer/USER_SECURITY_SYSTEM.md)
+
+### 5.1 User Identity System
+
+**Core Concept:** Users and groups with POSIX-compatible ID system
+
+- [ ] UserId type (0=root, 1-999=system, 1000+=regular)
+- [ ] GroupId type with similar ranges
+- [ ] User account structure (username, home, shell, etc.)
+- [ ] /etc/passwd and /etc/shadow equivalents
+- [ ] User database manager
+
+### 5.2 Group System
+
+**Core Concept:** Group membership for shared access
+
+- [ ] Group structure with members and admins
+- [ ] Primary and supplementary groups
+- [ ] /etc/group and /etc/gshadow equivalents
+- [ ] Default system groups (root, wheel, users, etc.)
+- [ ] Maximum 32 supplementary groups per process
+
+### 5.3 Authentication System
+
+**Core Concept:** Secure password-based authentication with Argon2id
+
+- [ ] Password hashing with Argon2id (64MB, 3 iterations)
+- [ ] Salt generation (128-bit random)
+- [ ] Constant-time password comparison
+- [ ] Login program (identification → authentication → session)
+- [ ] Failed login handling (exponential backoff, lockout)
+- [ ] Session management
+- [ ] PAM-like module interface
+
+### 5.4 Process Credentials
+
+**Core Concept:** Each process has user/group credentials
+
+```
+Real UID/GID     - Who started the process
+Effective UID/GID - Used for permission checks
+Saved UID/GID    - For setuid programs
+Filesystem UID/GID - For file access
+```
+
+- [ ] ProcessCredentials struct
+- [ ] Credential inheritance on fork()
+- [ ] Credential transition on exec()
+- [ ] setuid/setgid/setgroups syscalls
+- [ ] getuid/getgid/getgroups syscalls
+
+### 5.5 File Ownership & Permissions
+
+**Core Concept:** POSIX file permissions with owner/group/other
+
+```
+-rwxr-xr-x  1 root wheel  1024 Jan 1 12:00 /usr/bin/ls
+│││ │││ │││
+│││ │││ └── Other: r-x (read, execute)
+│││ └───── Group: r-x (read, execute)  
+└──────── Owner: rwx (read, write, execute)
+```
+
+- [ ] File mode (rwxrwxrwx) in inode
+- [ ] Owner UID and GID in inode
+- [ ] Setuid/setgid/sticky bits
+- [ ] Permission checking algorithm
+- [ ] chown/chmod/chgrp syscalls
+- [ ] umask support
+
+### 5.6 Capability System
+
+**Core Concept:** Fine-grained privileges replacing all-or-nothing root
+
+| Capability | Purpose |
+|------------|---------|
+| CAP_DAC_OVERRIDE | Bypass file permissions |
+| CAP_SETUID | Change process UID |
+| CAP_NET_BIND_SERVICE | Bind to ports < 1024 |
+| CAP_SYS_ADMIN | Various administrative operations |
+
+- [ ] CapabilitySet bitmap type
+- [ ] Per-process capability sets (permitted, effective, inheritable, bounding)
+- [ ] Capability inheritance on fork/exec
+- [ ] Capability-aware syscalls
+- [ ] File capabilities (optional)
+
+### 5.7 Superuser (Root) Model
+
+**Core Concept:** Root (UID 0) has all capabilities by default
+
+- [ ] Root bypass for permission checks
+- [ ] Root login restrictions (securetty)
+- [ ] su command (switch user)
+- [ ] sudo command (execute as another user)
+- [ ] Capability dropping for least privilege
+
+### 5.8 Security Policies
+
+**Core Concept:** Defense in depth with multiple security layers
+
+- [ ] Resource limits (max processes, open files, memory)
+- [ ] Mandatory Access Control labels (optional)
+- [ ] Audit logging (login, permission denied, privilege use)
+- [ ] Login restrictions (time, terminal, network)
+- [ ] Account expiration
+
+### 5.9 User Management Commands
+
+| Command | Description |
+|---------|-------------|
+| `useradd` | Create new user |
+| `userdel` | Delete user |
+| `usermod` | Modify user |
+| `passwd` | Change password |
+| `groupadd` | Create group |
+| `groupdel` | Delete group |
+| `groupmod` | Modify group |
+| `su` | Switch user |
+| `sudo` | Execute as another user |
+| `id` | Show current user/groups |
+| `whoami` | Show current username |
+| `chown` | Change file owner |
+| `chmod` | Change file permissions |
+
+---
+
 ## Project Structure
 
 ```
@@ -927,6 +1060,99 @@ qemu-system-x86_64 \
 - [ ] **CONC-017**: libdebos parallel iterators
 - [ ] **CONC-018**: libdebos structured concurrency
 
+### Priority 4C: User Management & Security (Phase 5)
+
+**Documentation:** [docs/developer/USER_SECURITY_SYSTEM.md](docs/developer/USER_SECURITY_SYSTEM.md)
+
+##### 5A: Core Identity System
+- [ ] **USER-001**: UserId type with ranges (root/system/regular)
+- [ ] **USER-002**: GroupId type with default groups
+- [ ] **USER-003**: User struct (uid, gid, username, home, shell)
+- [ ] **USER-004**: Group struct (gid, name, members, admins)
+- [ ] **USER-005**: /etc/passwd parser and writer
+- [ ] **USER-006**: /etc/group parser and writer
+- [ ] **USER-007**: User database manager (lookup, create, delete)
+
+##### 5B: Process Credentials
+- [ ] **CRED-001**: ProcessCredentials struct (uid, euid, suid, fsuid + groups)
+- [ ] **CRED-002**: Credential storage in TCB (Thread Control Block)
+- [ ] **CRED-003**: Credential inheritance on fork()
+- [ ] **CRED-004**: Credential transition on exec() (setuid handling)
+- [ ] **CRED-005**: sys_setuid / sys_seteuid / sys_setreuid
+- [ ] **CRED-006**: sys_setgid / sys_setegid / sys_setregid
+- [ ] **CRED-007**: sys_setgroups / sys_getgroups
+- [ ] **CRED-008**: sys_getuid / sys_geteuid / sys_getresuid
+- [ ] **CRED-009**: sys_getgid / sys_getegid / sys_getresgid
+
+##### 5C: Authentication System
+- [ ] **AUTH-001**: Argon2id password hashing implementation
+- [ ] **AUTH-002**: Salt generation (128-bit CSPRNG)
+- [ ] **AUTH-003**: Constant-time password comparison
+- [ ] **AUTH-004**: /etc/shadow parser and writer (root-only)
+- [ ] **AUTH-005**: PasswordEntry struct (hash, salt, expiry, etc.)
+- [ ] **AUTH-006**: Login program (authenticate and create session)
+- [ ] **AUTH-007**: Session management (login/logout tracking)
+- [ ] **AUTH-008**: Failed login handling (exponential backoff)
+- [ ] **AUTH-009**: Account lockout after max failures
+- [ ] **AUTH-010**: PAM-like AuthModule trait
+
+##### 5D: File Permissions
+- [ ] **PERM-001**: FileMode struct (rwxrwxrwx bits)
+- [ ] **PERM-002**: Owner UID/GID in inode
+- [ ] **PERM-003**: Setuid/setgid/sticky bits in inode
+- [ ] **PERM-004**: Permission checking algorithm
+- [ ] **PERM-005**: sys_chmod / sys_fchmod
+- [ ] **PERM-006**: sys_chown / sys_fchown / sys_lchown
+- [ ] **PERM-007**: sys_access (permission test)
+- [ ] **PERM-008**: umask handling in file creation
+- [ ] **PERM-009**: Default permissions (0644 files, 0755 dirs)
+
+##### 5E: Capability System
+- [ ] **CAP-001**: Capability enum (CAP_DAC_OVERRIDE, CAP_SETUID, etc.)
+- [ ] **CAP-002**: CapabilitySet bitmap (64 capabilities)
+- [ ] **CAP-003**: Per-process capability sets (permitted, effective, inheritable, bounding)
+- [ ] **CAP-004**: Capability inheritance on fork()
+- [ ] **CAP-005**: Capability transition on exec()
+- [ ] **CAP-006**: Capability checking in syscalls
+- [ ] **CAP-007**: sys_capget / sys_capset
+- [ ] **CAP-008**: Root capability bypass (when CAP_DAC_OVERRIDE)
+
+##### 5F: Superuser & Privilege Escalation
+- [ ] **ROOT-001**: Root (UID 0) detection and handling
+- [ ] **ROOT-002**: Securetty (restrict root login terminals)
+- [ ] **ROOT-003**: su command implementation
+- [ ] **ROOT-004**: sudo command implementation
+- [ ] **ROOT-005**: /etc/sudoers parser
+- [ ] **ROOT-006**: Privilege dropping (setuid after fork)
+- [ ] **ROOT-007**: Capability-based privilege (instead of full root)
+
+##### 5G: Security Policies
+- [ ] **POL-001**: ResourceLimits struct (max procs, files, memory)
+- [ ] **POL-002**: /etc/security/limits.conf parser
+- [ ] **POL-003**: Per-user/group limit enforcement
+- [ ] **POL-004**: SecurityLabel for MAC (optional)
+- [ ] **POL-005**: Audit event logging
+- [ ] **POL-006**: /var/log/auth.log writer
+- [ ] **POL-007**: Login time restrictions
+- [ ] **POL-008**: Account expiration handling
+
+##### 5H: User Management Commands
+- [ ] **CMD-001**: useradd command
+- [ ] **CMD-002**: userdel command
+- [ ] **CMD-003**: usermod command
+- [ ] **CMD-004**: passwd command (setuid root)
+- [ ] **CMD-005**: groupadd command
+- [ ] **CMD-006**: groupdel command
+- [ ] **CMD-007**: groupmod command
+- [ ] **CMD-008**: id command
+- [ ] **CMD-009**: whoami command
+- [ ] **CMD-010**: groups command
+- [ ] **CMD-011**: chown command
+- [ ] **CMD-012**: chmod command
+- [ ] **CMD-013**: chgrp command
+- [ ] **CMD-014**: login command
+- [ ] **CMD-015**: logout command
+
 ### Priority 5: Standard Library & Tooling
 
 - [ ] **LIB-001**: libdebos syscall wrappers
@@ -951,6 +1177,11 @@ qemu-system-x86_64 \
 | 4 | Context switch benchmark | < 100ns average switch time |
 | 4 | Work stealing | Linear speedup with core count |
 | 4 | Async I/O | 1M IOPS with green threads |
+| 5 | User isolation | Process A (uid=1000) cannot access Process B (uid=1001) files |
+| 5 | Authentication | Invalid passwords rejected, valid accepted |
+| 5 | File permissions | Permission denied for unauthorized file access |
+| 5 | Capability system | Non-root with CAP_NET_BIND_SERVICE can bind port 80 |
+| 5 | Sudo/su | Privilege escalation works with correct password |
 
 ---
 
