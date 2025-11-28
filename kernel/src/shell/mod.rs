@@ -155,6 +155,14 @@ impl Shell {
             "mount" => commands::mount(args),
             "fatls" => commands::fatls(args),
             "fatcat" => commands::fatcat(args),
+            "fatwrite" => commands::fatwrite(args),
+            "fatrm" => commands::fatrm(args),
+            
+            // Text processing commands
+            "head" => commands::head(args),
+            "tail" => commands::tail(args),
+            "grep" => commands::grep(args),
+            "edit" | "vim" | "vi" => commands::edit(args),
             
             // Filesystem commands
             "pwd" => commands::pwd(args),

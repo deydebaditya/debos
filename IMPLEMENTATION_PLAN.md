@@ -682,7 +682,14 @@ qemu-system-x86_64 \
 - [x] **FAT-002**: FAT table reading (cluster chains)
 - [x] **FAT-003**: Directory entry parsing (8.3 filenames)
 - [x] **FAT-004**: File read operations
-- [ ] **FAT-005**: File write operations (future enhancement)
+- [x] **FAT-005**: File write operations (create, update, delete)
+- [x] **FAT-006**: Cluster allocation and FAT entry management
+
+#### Phase 2C+: Shell Utilities ✅ COMPLETE
+- [x] **UTIL-001**: head command (first N lines)
+- [x] **UTIL-002**: tail command (last N lines)
+- [x] **UTIL-003**: grep command (pattern matching)
+- [x] **UTIL-004**: vim-like text editor (edit command)
 
 #### Phase 2D: Userspace Servers
 - [ ] **SRV-001**: VFS Server skeleton with IPC listener

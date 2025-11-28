@@ -27,7 +27,7 @@ pub fn help(_args: &[&str]) {
     println!("  exit, quit     - Exit the shell");
     println!("  reboot         - Reboot the system");
     println!();
-    println!("Filesystem Commands:");
+    println!("File Commands (RamFS):");
     println!("  pwd            - Print working directory");
     println!("  ls [path]      - List directory contents");
     println!("  cd <path>      - Change directory");
@@ -35,16 +35,24 @@ pub fn help(_args: &[&str]) {
     println!("  rmdir <path>   - Remove empty directory");
     println!("  touch <file>   - Create empty file");
     println!("  cat <file>     - Display file contents");
+    println!("  head [-n N] f  - Show first N lines (default 10)");
+    println!("  tail [-n N] f  - Show last N lines (default 10)");
     println!("  rm <file>      - Remove file");
     println!("  write <f> <t>  - Write text to file");
     println!("  stat <path>    - Show file/dir info");
     println!();
-    println!("Block Device Commands:");
+    println!("Text Processing:");
+    println!("  grep <pat> <f> - Search for pattern in file");
+    println!("  edit <file>    - Edit file (vim-like)");
+    println!();
+    println!("Block Device (FAT32):");
     println!("  disk           - Show block device info");
     println!("  blkread <sec>  - Read a sector from disk");
     println!("  mount          - Mount FAT32 filesystem");
     println!("  fatls [path]   - List FAT32 directory");
     println!("  fatcat <file>  - Read FAT32 file");
+    println!("  fatwrite <f> t - Write text to FAT32 file");
+    println!("  fatrm <file>   - Delete FAT32 file");
     println!();
     println!("Other:");
     println!("  echo <text>    - Echo text to console");
@@ -360,6 +368,365 @@ pub fn fatcat(args: &[&str]) {
         }
         Err(e) => {
             println!("fatcat: {:?}", e);
+        }
+    }
+}
+
+/// Write to FAT32 file
+pub fn fatwrite(args: &[&str]) {
+    use crate::fs::fat32;
+    
+    if !fat32::is_mounted() {
+        println!("fatwrite: FAT32 not mounted (use 'mount' first)");
+        return;
+    }
+    
+    if args.len() < 2 {
+        println!("Usage: fatwrite <file> <text...>");
+        return;
+    }
+    
+    let path = args[0];
+    let text = args[1..].join(" ");
+    let data = text.as_bytes();
+    
+    match fat32::write_file(path, data) {
+        Ok(_) => println!("Wrote {} bytes to {}", data.len(), path),
+        Err(e) => println!("fatwrite: {:?}", e),
+    }
+}
+
+/// Delete FAT32 file
+pub fn fatrm(args: &[&str]) {
+    use crate::fs::fat32;
+    
+    if !fat32::is_mounted() {
+        println!("fatrm: FAT32 not mounted (use 'mount' first)");
+        return;
+    }
+    
+    if args.is_empty() {
+        println!("Usage: fatrm <file>");
+        return;
+    }
+    
+    let path = args[0];
+    
+    match fat32::delete_file(path) {
+        Ok(_) => println!("Deleted {}", path),
+        Err(e) => println!("fatrm: {:?}", e),
+    }
+}
+
+// ============================================================================
+// Text Processing Commands
+// ============================================================================
+
+/// Show first N lines of a file (head)
+pub fn head(args: &[&str]) {
+    let mut lines = 10usize;
+    let mut file_idx = 0;
+    
+    // Parse arguments
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-n" && i + 1 < args.len() {
+            lines = args[i + 1].parse().unwrap_or(10);
+            i += 2;
+        } else {
+            file_idx = i;
+            break;
+        }
+        i += 1;
+    }
+    
+    if file_idx >= args.len() {
+        println!("Usage: head [-n lines] <file>");
+        return;
+    }
+    
+    let path = args[file_idx];
+    
+    match fs::read_to_string(path) {
+        Ok(content) => {
+            for (i, line) in content.lines().enumerate() {
+                if i >= lines {
+                    break;
+                }
+                println!("{}", line);
+            }
+        }
+        Err(e) => println!("head: {}: {}", path, e),
+    }
+}
+
+/// Show last N lines of a file (tail)
+pub fn tail(args: &[&str]) {
+    let mut lines = 10usize;
+    let mut file_idx = 0;
+    
+    // Parse arguments
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-n" && i + 1 < args.len() {
+            lines = args[i + 1].parse().unwrap_or(10);
+            i += 2;
+        } else {
+            file_idx = i;
+            break;
+        }
+        i += 1;
+    }
+    
+    if file_idx >= args.len() {
+        println!("Usage: tail [-n lines] <file>");
+        return;
+    }
+    
+    let path = args[file_idx];
+    
+    match fs::read_to_string(path) {
+        Ok(content) => {
+            let all_lines: alloc::vec::Vec<&str> = content.lines().collect();
+            let start = if all_lines.len() > lines { all_lines.len() - lines } else { 0 };
+            
+            for line in &all_lines[start..] {
+                println!("{}", line);
+            }
+        }
+        Err(e) => println!("tail: {}: {}", path, e),
+    }
+}
+
+/// Search for pattern in file (grep)
+pub fn grep(args: &[&str]) {
+    if args.len() < 2 {
+        println!("Usage: grep <pattern> <file>");
+        return;
+    }
+    
+    let pattern = args[0];
+    let path = args[1];
+    
+    match fs::read_to_string(path) {
+        Ok(content) => {
+            let mut found = false;
+            for (line_num, line) in content.lines().enumerate() {
+                if line.contains(pattern) {
+                    println!("{}:{}: {}", path, line_num + 1, line);
+                    found = true;
+                }
+            }
+            if !found {
+                println!("(no matches)");
+            }
+        }
+        Err(e) => println!("grep: {}: {}", path, e),
+    }
+}
+
+// ============================================================================
+// Text Editor (vim-like)
+// ============================================================================
+
+/// Simple line-based text editor
+pub fn edit(args: &[&str]) {
+    if args.is_empty() {
+        println!("Usage: edit <file>");
+        return;
+    }
+    
+    let path = args[0];
+    
+    // Load existing content or start fresh
+    let mut lines: alloc::vec::Vec<alloc::string::String> = match fs::read_to_string(path) {
+        Ok(content) => content.lines().map(|s| alloc::string::String::from(s)).collect(),
+        Err(_) => alloc::vec::Vec::new(),
+    };
+    
+    if lines.is_empty() {
+        lines.push(alloc::string::String::new());
+    }
+    
+    let mut current_line = 0usize;
+    let mut modified = false;
+    
+    println!("=== DebOS Editor ===");
+    println!("Commands: i (insert), d (delete line), p (print), g N (goto line)");
+    println!("          w (write), q (quit), wq (write & quit), h (help)");
+    println!();
+    
+    // Show initial content
+    print_editor_lines(&lines, current_line);
+    
+    loop {
+        print!(":{} > ", current_line + 1);
+        
+        if let Some(cmd) = read_editor_line() {
+            let cmd = cmd.trim();
+            
+            if cmd.is_empty() {
+                continue;
+            }
+            
+            let parts: alloc::vec::Vec<&str> = cmd.splitn(2, ' ').collect();
+            let command = parts[0];
+            let arg = parts.get(1).copied().unwrap_or("");
+            
+            match command {
+                "h" | "help" => {
+                    println!("Editor Commands:");
+                    println!("  i <text>   - Insert text at current line");
+                    println!("  a <text>   - Append text after current line");
+                    println!("  d          - Delete current line");
+                    println!("  r <text>   - Replace current line");
+                    println!("  p          - Print all lines");
+                    println!("  g <n>      - Go to line n");
+                    println!("  n          - Next line");
+                    println!("  N          - Previous line");
+                    println!("  w          - Write file");
+                    println!("  q          - Quit (warns if unsaved)");
+                    println!("  wq         - Write and quit");
+                }
+                "i" => {
+                    lines.insert(current_line, alloc::string::String::from(arg));
+                    modified = true;
+                    println!("Inserted at line {}", current_line + 1);
+                }
+                "a" => {
+                    current_line += 1;
+                    if current_line > lines.len() {
+                        current_line = lines.len();
+                    }
+                    lines.insert(current_line, alloc::string::String::from(arg));
+                    modified = true;
+                    println!("Appended at line {}", current_line + 1);
+                }
+                "d" => {
+                    if lines.len() > 1 {
+                        lines.remove(current_line);
+                        if current_line >= lines.len() {
+                            current_line = lines.len() - 1;
+                        }
+                        modified = true;
+                        println!("Deleted line");
+                    } else {
+                        lines[0] = alloc::string::String::new();
+                        modified = true;
+                        println!("Cleared line");
+                    }
+                }
+                "r" => {
+                    lines[current_line] = alloc::string::String::from(arg);
+                    modified = true;
+                    println!("Replaced line {}", current_line + 1);
+                }
+                "p" => {
+                    print_editor_lines(&lines, current_line);
+                }
+                "g" => {
+                    if let Ok(n) = arg.parse::<usize>() {
+                        if n > 0 && n <= lines.len() {
+                            current_line = n - 1;
+                            println!("Line {}: {}", current_line + 1, lines[current_line]);
+                        } else {
+                            println!("Invalid line number");
+                        }
+                    }
+                }
+                "n" => {
+                    if current_line + 1 < lines.len() {
+                        current_line += 1;
+                        println!("Line {}: {}", current_line + 1, lines[current_line]);
+                    }
+                }
+                "N" => {
+                    if current_line > 0 {
+                        current_line -= 1;
+                        println!("Line {}: {}", current_line + 1, lines[current_line]);
+                    }
+                }
+                "w" => {
+                    let content = lines.join("\n");
+                    match fs::write_string(path, &content) {
+                        Ok(_) => {
+                            modified = false;
+                            println!("Wrote {} lines to {}", lines.len(), path);
+                        }
+                        Err(e) => println!("Error writing: {}", e),
+                    }
+                }
+                "q" => {
+                    if modified {
+                        println!("Unsaved changes! Use 'wq' to save and quit, or 'q!' to force quit");
+                    } else {
+                        break;
+                    }
+                }
+                "q!" => {
+                    break;
+                }
+                "wq" => {
+                    let content = lines.join("\n");
+                    match fs::write_string(path, &content) {
+                        Ok(_) => {
+                            println!("Wrote {} lines to {}", lines.len(), path);
+                            break;
+                        }
+                        Err(e) => println!("Error writing: {}", e),
+                    }
+                }
+                _ => {
+                    println!("Unknown command. Type 'h' for help.");
+                }
+            }
+        }
+    }
+    
+    println!("Editor closed.");
+}
+
+/// Print editor lines with current line indicator
+fn print_editor_lines(lines: &[alloc::string::String], current: usize) {
+    for (i, line) in lines.iter().enumerate() {
+        let marker = if i == current { ">" } else { " " };
+        println!("{} {:3}: {}", marker, i + 1, line);
+    }
+}
+
+/// Read a line in editor mode
+fn read_editor_line() -> Option<alloc::string::String> {
+    use crate::shell::input;
+    
+    let mut buffer = alloc::string::String::new();
+    
+    loop {
+        if let Some(c) = input::read_char() {
+            match c {
+                b'\r' | b'\n' => {
+                    println!();
+                    return Some(buffer);
+                }
+                0x7F | 0x08 => {
+                    if !buffer.is_empty() {
+                        buffer.pop();
+                        print!("\x08 \x08");
+                    }
+                }
+                0x03 => {
+                    println!("^C");
+                    return None;
+                }
+                c if c >= 0x20 && c < 0x7F => {
+                    buffer.push(c as char);
+                    print!("{}", c as char);
+                }
+                _ => {}
+            }
+        }
+        
+        for _ in 0..1000 {
+            core::hint::spin_loop();
         }
     }
 }

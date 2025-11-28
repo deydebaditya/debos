@@ -108,6 +108,46 @@ pub fn read_bytes(start_byte: u64, buf: &mut [u8]) -> Result<(), BlockError> {
     Ok(())
 }
 
+/// Write raw bytes at a byte offset
+pub fn write_bytes(start_byte: u64, data: &[u8]) -> Result<(), BlockError> {
+    use super::virtio::block;
+    
+    let sector_size = 512u64;
+    let start_sector = start_byte / sector_size;
+    let offset_in_sector = (start_byte % sector_size) as usize;
+    
+    let mut sector_buf = [0u8; 512];
+    let mut bytes_written = 0;
+    let mut current_sector = start_sector;
+    
+    while bytes_written < data.len() {
+        let start_in_sector = if current_sector == start_sector {
+            offset_in_sector
+        } else {
+            0
+        };
+        
+        let bytes_in_sector = (sector_size as usize - start_in_sector).min(data.len() - bytes_written);
+        
+        // If not writing a full sector, read first
+        if start_in_sector != 0 || bytes_in_sector != sector_size as usize {
+            block::read_sector(current_sector, &mut sector_buf)?;
+        }
+        
+        // Copy data into sector buffer
+        sector_buf[start_in_sector..start_in_sector + bytes_in_sector]
+            .copy_from_slice(&data[bytes_written..bytes_written + bytes_in_sector]);
+        
+        // Write sector
+        block::write_sector(current_sector, &sector_buf)?;
+        
+        bytes_written += bytes_in_sector;
+        current_sector += 1;
+    }
+    
+    Ok(())
+}
+
 /// Get block device information
 pub fn get_device_info() -> Option<(u64, u32, bool)> {
     super::virtio::block::get_info()
