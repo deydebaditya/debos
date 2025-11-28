@@ -397,17 +397,19 @@ Polled mode:      Device completion → Poll CQ (10-20ns) = 10-20ns total
 - [ ] **LFFS-005**: Lock-free free space bitmap
 - [ ] **LFFS-006**: Lazy writeback with batching
 
-#### 2.5.6 Direct Device Access (Optional, Capability-Controlled)
+#### 2.5.6 Security Enforcement Layer
 
-**Core Concept:** Userspace driver for maximum performance
+**Core Concept:** All I/O validated by kernel, no exceptions
 
-- [ ] **DIRECT-001**: VFIO driver binding
-- [ ] **DIRECT-002**: Userspace NVMe command submission
-- [ ] **DIRECT-003**: DMA buffer management in userspace
-- [ ] **DIRECT-004**: Capability-based access control
-- [ ] **DIRECT-005**: Safety enforcement via IOMMU
+- [ ] **SEC-001**: Per-ring capability enforcement
+- [ ] **SEC-002**: Per-operation permission checking (cached)
+- [ ] **SEC-003**: Buffer address validation (pre-registration)
+- [ ] **SEC-004**: IOMMU-enforced DMA boundaries
+- [ ] **SEC-005**: Rate limiting per process
+- [ ] **SEC-006**: Audit logging for I/O operations
+- [ ] **SEC-007**: Ring isolation between processes
 
-#### 2.5.7 Performance Targets
+#### 2.5.7 Performance Targets (WITH Full Security)
 
 | Metric | Linux io_uring | DebOS Target | Improvement |
 |--------|----------------|--------------|-------------|
@@ -417,15 +419,18 @@ Polled mode:      Device completion → Poll CQ (10-20ns) = 10-20ns total
 | Random 4KB IOPS | 1-2M | 5-10M | 5-10x |
 | Batched submit (32) | 3-5µs | 100-200ns | 25-50x |
 
-#### 2.5.8 Trade-offs
+#### 2.5.8 Trade-offs (Security NOT Compromised)
 
 | Trade-off | Impact | Mitigation |
 |-----------|--------|------------|
-| Security reduced | Medium | IOMMU, capabilities, audit logging |
+| ~~Security~~ | **NONE** | Full kernel isolation maintained |
 | Memory overhead | +50-100MB | Only for fast-path apps |
 | Power consumption | +10-30% when polling | Adaptive polling |
 | Complexity | +5000 LOC | Extensive testing, documentation |
 | Legacy compat | Must use new APIs | Transparent wrapper available |
+
+> ✅ **SECURITY GUARANTEE:** DebOS Ultra-Fast I/O maintains strict kernel isolation.
+> All operations are validated by the kernel. No userspace access to devices.
 
 ---
 
@@ -866,14 +871,15 @@ qemu-system-x86_64 \
 - [ ] **LFFS-006**: Lock-free free space bitmap
 - [ ] **LFFS-007**: Lazy writeback queue
 
-##### 2F-6: Direct Device Access (Userspace Driver)
-- [ ] **DIRECT-001**: VFIO driver binding framework
-- [ ] **DIRECT-002**: Userspace MMIO mapping
-- [ ] **DIRECT-003**: Userspace interrupt handling
-- [ ] **DIRECT-004**: DMA buffer management
-- [ ] **DIRECT-005**: NVMe userspace library
-- [ ] **DIRECT-006**: Capability-based access control
-- [ ] **DIRECT-007**: IOMMU enforcement
+##### 2F-6: Security Enforcement (MANDATORY)
+- [ ] **SEC-001**: Per-ring capability token validation
+- [ ] **SEC-002**: Per-operation permission checking (with caching)
+- [ ] **SEC-003**: Buffer pre-registration with address validation
+- [ ] **SEC-004**: IOMMU integration for DMA protection
+- [ ] **SEC-005**: Per-process I/O rate limiting
+- [ ] **SEC-006**: Audit logging for all I/O operations
+- [ ] **SEC-007**: Ring isolation (process cannot access other rings)
+- [ ] **SEC-008**: Secure ring teardown on process exit
 
 ##### 2F-7: Benchmarking & Optimization
 - [ ] **BENCH-001**: fio-compatible benchmark tool
