@@ -6,7 +6,8 @@ Welcome to the DebOS developer documentation. This folder contains technical gui
 
 | Document | Description | Status |
 |----------|-------------|--------|
-| [FILESYSTEM_IMPLEMENTATION.md](./FILESYSTEM_IMPLEMENTATION.md) | Filesystem & VFS implementation plan | 📋 Planned |
+| [FILESYSTEM_IMPLEMENTATION.md](./FILESYSTEM_IMPLEMENTATION.md) | Filesystem & VFS implementation plan | ✅ Phase 2A Done |
+| [CONCURRENCY_IMPLEMENTATION.md](./CONCURRENCY_IMPLEMENTATION.md) | Green threading, work-stealing, GPU compute | 📋 Phase 4 Planned |
 | NETWORKING_IMPLEMENTATION.md | TCP/IP stack implementation | 🔜 Coming Soon |
 | IPC_DEEP_DIVE.md | IPC internals and optimization | 🔜 Coming Soon |
 | DRIVER_DEVELOPMENT.md | How to write DebOS drivers | 🔜 Coming Soon |

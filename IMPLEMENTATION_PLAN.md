@@ -13,9 +13,10 @@
 3. [Phase 1: Kernel Parity](#phase-1-kernel-parity-months-1-3)
 4. [Phase 2: Core Drivers](#phase-2-core-drivers-months-4-5)
 5. [Phase 3: The AI Layer](#phase-3-the-ai-layer-months-6-8)
-6. [Project Structure](#project-structure)
-7. [Development Environment](#development-environment)
-8. [Detailed TODO Lists](#detailed-todo-lists)
+6. [Phase 4: Advanced Concurrency](#phase-4-advanced-concurrency-independent)
+7. [Project Structure](#project-structure)
+8. [Development Environment](#development-environment)
+9. [Detailed TODO Lists](#detailed-todo-lists)
 
 ---
 
@@ -29,6 +30,7 @@ DebOS is a **POSIX-compatible microkernel** system written in Rust with AI integ
 - **Rust-based**: Memory safety guarantees via `no_std` Rust
 - **AI-First**: Intent Engine and Generative UI as first-class citizens
 - **Capability-based Security**: Fine-grained access control
+- **Advanced Concurrency**: Green threading, work-stealing scheduler, unified CPU/GPU compute
 
 ---
 
@@ -359,6 +361,90 @@ For each driver (e.g., `drivers/virtio_net`):
 
 ---
 
+## Phase 4: Advanced Concurrency (Independent)
+
+**Goal:** Make DebOS the most capable multi-processing and multi-threaded OS  
+**Status:** Independent phase, can run in parallel with other phases  
+**Test Criteria:** Spawn 10 million green threads, achieve sub-100ns context switching
+
+> 📖 **Full Documentation:** See [docs/developer/CONCURRENCY_IMPLEMENTATION.md](docs/developer/CONCURRENCY_IMPLEMENTATION.md)
+
+### 4.1 Green Threading Core
+
+**M:N threading model with millions of lightweight threads**
+
+- [ ] `GreenThread` structure with minimal context (~64 bytes)
+- [ ] `GreenContext` save/restore (x86_64 and AArch64)
+- [ ] `GrowableStack` with guard pages (2KB initial, up to 1MB)
+- [ ] Ultra-fast context switching (~50-100ns)
+- [ ] Basic spawn/yield/exit operations
+
+### 4.2 Work-Stealing Scheduler
+
+**Lock-free, NUMA-aware work distribution**
+
+- [ ] Chase-Lev lock-free work-stealing deque
+- [ ] Per-core executors with local run queues
+- [ ] Work stealing between cores
+- [ ] NUMA topology detection
+- [ ] NUMA-aware stealing (prefer local node)
+- [ ] Global injection queue for external events
+
+### 4.3 Async I/O Integration
+
+**io_uring-style completion-based I/O**
+
+- [ ] IoRing submission/completion queues
+- [ ] Zero-copy I/O operations
+- [ ] Green thread I/O blocking/wake-up
+- [ ] Batched syscall submission
+- [ ] Async file and socket operations
+
+### 4.4 GPU Compute Integration
+
+**Unified CPU/GPU compute model**
+
+- [ ] GPU device enumeration and management
+- [ ] Unified memory addressing (CPU/GPU shared)
+- [ ] GPU task submission and scheduling
+- [ ] Automatic CPU/GPU work partitioning
+- [ ] Metal backend (Apple Silicon)
+- [ ] Vulkan compute backend (optional)
+
+### 4.5 User-Space API (libdebos)
+
+```rust
+// Green thread spawning
+let handle = spawn_green(|| compute_something());
+
+// Parallel iterators with work-stealing
+data.par_iter().map(|x| x * 2).sum();
+
+// Structured concurrency
+scope(|s| {
+    s.spawn(|| task_a());
+    s.spawn(|| task_b());
+}); // Both complete before scope exits
+
+// Async I/O (yields green thread, not OS thread)
+let bytes = file.read(&mut buf).await?;
+
+// GPU compute (auto CPU/GPU partitioning)
+parallel_compute(&mut data, |x| *x = (*x).sqrt());
+```
+
+### Performance Targets
+
+| Metric | Target | Comparison |
+|--------|--------|------------|
+| Green thread spawn | < 100ns | 200x faster than pthread |
+| Context switch | < 100ns | 15x faster than Linux |
+| Memory per thread | 2KB | 1000x less than pthread |
+| Max concurrent | 10M+ | 1000x more than typical |
+| Work steal latency | < 500ns | Lock-free |
+
+---
+
 ## Project Structure
 
 ```
@@ -561,7 +647,7 @@ qemu-system-x86_64 \
 - [ ] **DRV-003**: NVMe driver (stretch)
 - [ ] **DRV-004**: e1000 driver (stretch)
 
-### Priority 4: AI Layer (Differentiator)
+### Priority 4A: AI Layer (Differentiator)
 
 - [ ] **AI-001**: Port ONNX Runtime Lite
 - [ ] **AI-002**: Intent Engine service
@@ -570,6 +656,27 @@ qemu-system-x86_64 \
 - [ ] **AI-005**: GenShell JSON protocol
 - [ ] **AI-006**: GenShell renderer
 - [ ] **AI-007**: Window compositor
+
+### Priority 4B: Advanced Concurrency (Independent)
+
+- [ ] **CONC-001**: GreenThread structure and context
+- [ ] **CONC-002**: Ultra-fast context switching (x86_64)
+- [ ] **CONC-003**: Ultra-fast context switching (AArch64)
+- [ ] **CONC-004**: Growable stacks with guard pages
+- [ ] **CONC-005**: Lock-free work-stealing deque
+- [ ] **CONC-006**: Per-core executors
+- [ ] **CONC-007**: Work-stealing scheduler
+- [ ] **CONC-008**: NUMA topology detection
+- [ ] **CONC-009**: NUMA-aware work stealing
+- [ ] **CONC-010**: IoRing submission queue
+- [ ] **CONC-011**: IoRing completion queue
+- [ ] **CONC-012**: Green thread I/O integration
+- [ ] **CONC-013**: GPU device enumeration
+- [ ] **CONC-014**: Unified CPU/GPU memory
+- [ ] **CONC-015**: GPU task scheduler
+- [ ] **CONC-016**: libdebos green thread API
+- [ ] **CONC-017**: libdebos parallel iterators
+- [ ] **CONC-018**: libdebos structured concurrency
 
 ### Priority 5: Standard Library & Tooling
 
@@ -591,6 +698,10 @@ qemu-system-x86_64 \
 | 2 | ext4 file read | Mount disk image, read file content |
 | 2 | ICMP ping | `ping 8.8.8.8` returns responses |
 | 3 | AI calculator | Text prompt generates calculator UI |
+| 4 | Green thread spawn | 10 million threads spawned < 10 seconds |
+| 4 | Context switch benchmark | < 100ns average switch time |
+| 4 | Work stealing | Linear speedup with core count |
+| 4 | Async I/O | 1M IOPS with green threads |
 
 ---
 
