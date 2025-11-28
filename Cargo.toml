@@ -1,0 +1,35 @@
+# DebOS Workspace
+# A POSIX-compatible microkernel system written in Rust with AI integration
+
+[workspace]
+resolver = "2"
+members = [
+    "kernel",
+    "libdebos",
+    "servers/vfs",
+    "servers/netserver",
+    "servers/devman",
+    "servers/intent_engine",
+    "drivers/virtio_block",
+    "drivers/virtio_net",
+    "genshell",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["DebOS Contributors"]
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+spin = "0.9"
+bitflags = "2.4"
+log = "0.4"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = "z"

@@ -1,0 +1,8 @@
+[package]
+name = "debos-netserver"
+version.workspace = true
+edition.workspace = true
+description = "DebOS Network Server"
+
+[dependencies]
+libdebos = { path = "../../libdebos" }

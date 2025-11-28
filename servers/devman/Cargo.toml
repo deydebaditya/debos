@@ -1,0 +1,8 @@
+[package]
+name = "debos-devman"
+version.workspace = true
+edition.workspace = true
+description = "DebOS Device Manager"
+
+[dependencies]
+libdebos = { path = "../../libdebos" }

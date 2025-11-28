@@ -1,0 +1,8 @@
+[package]
+name = "debos-genshell"
+version.workspace = true
+edition.workspace = true
+description = "DebOS Generative UI Shell"
+
+[dependencies]
+libdebos = { path = "../libdebos" }

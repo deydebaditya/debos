@@ -1,0 +1,8 @@
+[package]
+name = "debos-virtio-block"
+version.workspace = true
+edition.workspace = true
+description = "DebOS VirtIO Block Driver"
+
+[dependencies]
+libdebos = { path = "../../libdebos" }

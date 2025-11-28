@@ -1,0 +1,48 @@
+# Cargo configuration for DebOS
+# Supports both x86_64 and AArch64 architectures
+
+[unstable]
+# Enable build-std to build core/alloc for bare metal
+build-std = ["core", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
+
+# x86_64 target configuration
+[target.x86_64-unknown-none]
+linker = "rust-lld"
+rustflags = ["-C", "link-arg=-Tkernel/linker.ld"]
+runner = """
+qemu-system-x86_64 \
+    -machine q35 \
+    -m 512M \
+    -serial stdio \
+    -display none \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -kernel
+"""
+
+# AArch64 target configuration  
+[target.aarch64-unknown-none]
+linker = "rust-lld"
+rustflags = ["-C", "link-arg=-Tkernel/linker-aarch64.ld"]
+runner = """
+qemu-system-aarch64 \
+    -machine virt \
+    -cpu cortex-a72 \
+    -m 512M \
+    -serial stdio \
+    -display none \
+    -kernel
+"""
+
+[alias]
+# Build for x86_64
+build-x86 = "build --package debos-kernel --target x86_64-unknown-none"
+
+# Build for AArch64 (Apple Silicon native)
+build-arm = "build --package debos-kernel --target aarch64-unknown-none"
+
+# Run in QEMU for x86_64
+run-x86 = "run --package debos-kernel --target x86_64-unknown-none"
+
+# Run in QEMU for AArch64
+run-arm = "run --package debos-kernel --target aarch64-unknown-none"

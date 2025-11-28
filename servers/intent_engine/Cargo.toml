@@ -1,0 +1,8 @@
+[package]
+name = "debos-intent-engine"
+version.workspace = true
+edition.workspace = true
+description = "DebOS Intent Engine (AI)"
+
+[dependencies]
+libdebos = { path = "../../libdebos" }

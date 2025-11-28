@@ -1,0 +1,8 @@
+[package]
+name = "debos-vfs"
+version.workspace = true
+edition.workspace = true
+description = "DebOS Virtual Filesystem Server"
+
+[dependencies]
+libdebos = { path = "../../libdebos" }
