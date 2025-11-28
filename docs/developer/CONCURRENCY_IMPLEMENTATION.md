@@ -3,21 +3,97 @@
 > **Status:** Phase 4 - Independent (Can run in parallel with other phases)  
 > **Priority:** Core Differentiator  
 > **Estimated Effort:** 8-12 weeks  
-> **Goal:** Make DebOS the most capable multi-processing and multi-threaded OS ever built
+> **Goal:** Make DebOS the most capable multi-processing and multi-threaded OS ever built  
+> **Architectures:** x86_64, AArch64 (Apple Silicon, ARM64)
 
 ---
 
 ## Table of Contents
 
-1. [Vision](#vision)
-2. [Architecture Overview](#architecture-overview)
-3. [Green Threading Model](#green-threading-model)
-4. [Work-Stealing Scheduler](#work-stealing-scheduler)
-5. [GPU Compute Integration](#gpu-compute-integration)
-6. [Async I/O Subsystem](#async-io-subsystem)
-7. [Implementation Phases](#implementation-phases)
-8. [API Reference](#api-reference)
-9. [Performance Targets](#performance-targets)
+1. [Architecture Support](#architecture-support)
+2. [Vision](#vision)
+3. [Architecture Overview](#architecture-overview)
+4. [Green Threading Model](#green-threading-model)
+5. [Work-Stealing Scheduler](#work-stealing-scheduler)
+6. [GPU Compute Integration](#gpu-compute-integration) *(Opt-in, disabled by default)*
+7. [Async I/O Subsystem](#async-io-subsystem)
+8. [Implementation Phases](#implementation-phases)
+9. [API Reference](#api-reference)
+10. [Performance Targets](#performance-targets)
+
+---
+
+## Architecture Support
+
+The concurrency system is designed to work on **both x86_64 and AArch64** architectures:
+
+| Feature | x86_64 | AArch64 | Notes |
+|---------|--------|---------|-------|
+| Green Threading | ✅ Full | ✅ Full | Both architectures supported |
+| Context Switching | ✅ ~50 cycles | ✅ ~40 cycles | AArch64 slightly faster |
+| Work-Stealing | ✅ Full | ✅ Full | Architecture-independent |
+| NUMA Support | ✅ Full | ✅ Full | Platform-specific detection |
+| Async I/O | ✅ Full | ✅ Full | Same API, different backends |
+| GPU Compute | ✅ Vulkan | ✅ Metal | Platform-specific backends |
+
+### Architecture-Specific Context
+
+```rust
+/// Green thread context - architecture specific
+#[cfg(target_arch = "x86_64")]
+#[repr(C)]
+pub struct GreenContext {
+    // Callee-saved registers only (fast switching)
+    pub rbx: u64,
+    pub rbp: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+    pub rsp: u64,  // Stack pointer
+    pub rip: u64,  // Instruction pointer
+}
+
+#[cfg(target_arch = "aarch64")]
+#[repr(C)]
+pub struct GreenContext {
+    // Callee-saved registers (x19-x29)
+    pub x19: u64,
+    pub x20: u64,
+    pub x21: u64,
+    pub x22: u64,
+    pub x23: u64,
+    pub x24: u64,
+    pub x25: u64,
+    pub x26: u64,
+    pub x27: u64,
+    pub x28: u64,
+    pub x29: u64,  // Frame pointer
+    pub lr: u64,   // Link register (x30)
+    pub sp: u64,   // Stack pointer
+}
+```
+
+### GPU Backend Selection
+
+GPU compute uses platform-appropriate backends when enabled:
+
+| Platform | GPU Backend | Framework |
+|----------|-------------|-----------|
+| macOS (Apple Silicon) | Metal | Metal Performance Shaders |
+| macOS (Intel) | Metal | Metal Performance Shaders |
+| Linux (x86_64) | Vulkan | Vulkan Compute |
+| Linux (AArch64) | Vulkan | Vulkan Compute |
+| Windows (x86_64) | Vulkan/DX12 | Vulkan Compute |
+
+```rust
+/// GPU backend selection at compile time
+#[cfg(all(target_os = "macos", feature = "gpu"))]
+pub type GpuBackend = MetalBackend;
+
+#[cfg(all(not(target_os = "macos"), feature = "gpu"))]
+pub type GpuBackend = VulkanBackend;
+```
 
 ---
 
@@ -35,10 +111,11 @@ DebOS aims to be the **most capable concurrent computing OS** by providing:
    - NUMA-aware thread placement
    - Lock-free scheduling algorithms
 
-3. **Unified CPU/GPU Compute Model**
+3. **Unified CPU/GPU Compute Model** *(Opt-in via boot settings)*
    - Seamless offloading to GPU compute units
    - Unified memory addressing
    - Automatic workload partitioning
+   - **Disabled by default** - must be enabled at BIOS/boot level
 
 4. **Zero-Cost Async I/O**
    - io_uring-style completion-based I/O
@@ -621,14 +698,94 @@ impl CoreExecutor {
 
 ## GPU Compute Integration
 
-### Unified Compute Model
+> ⚠️ **IMPORTANT: GPU Compute is DISABLED by default**
+>
+> GPU compute must be explicitly enabled at boot time via kernel parameters.
+> This is a safety feature to ensure predictable behavior and prevent
+> unexpected GPU resource usage.
 
-DebOS treats GPU compute units as first-class execution resources:
+### Enabling GPU Compute
+
+GPU compute is controlled via boot parameters in the bootloader configuration:
+
+**GRUB (x86_64):**
+```
+linux /boot/debos-kernel gpu_compute=enabled gpu_scheduler=auto
+```
+
+**UEFI Boot (AArch64):**
+```
+debos.gpu_compute=enabled debos.gpu_scheduler=auto
+```
+
+**QEMU Testing:**
+```bash
+qemu-system-aarch64 ... -append "gpu_compute=enabled"
+```
+
+### Boot Parameters
+
+| Parameter | Values | Default | Description |
+|-----------|--------|---------|-------------|
+| `gpu_compute` | `disabled`, `enabled` | `disabled` | Master switch for GPU compute |
+| `gpu_scheduler` | `auto`, `manual`, `disabled` | `disabled` | GPU task scheduling mode |
+| `gpu_memory` | Size (e.g., `256M`, `1G`) | `0` | Reserved GPU memory |
+| `gpu_threshold` | Integer | `100000` | Min elements for GPU offload |
+
+### Runtime Detection
+
+```rust
+/// Check if GPU compute is available and enabled
+pub fn is_gpu_enabled() -> bool {
+    // Must be enabled at boot AND hardware must be present
+    BOOT_CONFIG.gpu_compute_enabled && GPU_DEVICE.is_some()
+}
+
+/// Boot configuration parsed from kernel command line
+pub struct BootConfig {
+    /// GPU compute master switch (default: false)
+    pub gpu_compute_enabled: bool,
+    
+    /// GPU scheduler mode
+    pub gpu_scheduler_mode: GpuSchedulerMode,
+    
+    /// Reserved GPU memory
+    pub gpu_memory_reserved: usize,
+    
+    /// Minimum elements for GPU offload heuristic
+    pub gpu_offload_threshold: usize,
+}
+
+impl Default for BootConfig {
+    fn default() -> Self {
+        BootConfig {
+            gpu_compute_enabled: false,  // DISABLED by default
+            gpu_scheduler_mode: GpuSchedulerMode::Disabled,
+            gpu_memory_reserved: 0,
+            gpu_offload_threshold: 100_000,
+        }
+    }
+}
+
+/// GPU scheduler modes
+pub enum GpuSchedulerMode {
+    /// GPU compute disabled (default)
+    Disabled,
+    /// Automatic CPU/GPU partitioning
+    Auto,
+    /// Manual GPU submission only
+    Manual,
+}
+```
+
+### Unified Compute Model (When Enabled)
+
+When GPU compute is enabled at boot, DebOS treats GPU compute units as execution resources:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Unified Scheduler                             │
-│                                                                  │
+│                 (Only when gpu_compute=enabled)                  │
 │  ┌────────────────────────┐    ┌────────────────────────────┐   │
 │  │      CPU Executors     │    │      GPU Executors         │   │
 │  │  ┌────┐ ┌────┐ ┌────┐  │    │  ┌────┐ ┌────┐ ┌────┐     │   │
@@ -640,6 +797,21 @@ DebOS treats GPU compute units as first-class execution resources:
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │   Accessible from both CPU and GPU                        │   │
 │  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+
+When gpu_compute=disabled (DEFAULT):
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    CPU-Only Scheduler                            │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────┐     │
+│  │                   CPU Executors                         │     │
+│  │     ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐         │     │
+│  │     │ C0 │ │ C1 │ │ C2 │ │ C3 │ │ C4 │ │ CN │ ...     │     │
+│  │     └────┘ └────┘ └────┘ └────┘ └────┘ └────┘         │     │
+│  └────────────────────────────────────────────────────────┘     │
+│                                                                  │
+│         GPU NOT INITIALIZED - Maximum CPU Efficiency             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -697,6 +869,11 @@ pub struct GpuKernel {
 
 ```rust
 /// Automatically partition work between CPU and GPU
+/// 
+/// NOTE: GPU is only used if:
+/// 1. gpu_compute=enabled was set at boot
+/// 2. GPU hardware is present
+/// 3. Dataset size exceeds gpu_threshold
 pub fn parallel_compute<T, F>(
     data: &mut [T],
     f: F,
@@ -705,9 +882,15 @@ where
     F: Fn(&mut T) + Sync + Send + GpuCompatible,
 {
     let len = data.len();
+    let config = get_boot_config();
     
-    // Heuristic: use GPU for large datasets
-    if len > GPU_THRESHOLD && is_gpu_available() {
+    // GPU is ONLY used if explicitly enabled at boot
+    let use_gpu = config.gpu_compute_enabled 
+        && config.gpu_scheduler_mode == GpuSchedulerMode::Auto
+        && len > config.gpu_offload_threshold
+        && is_gpu_hardware_present();
+    
+    if use_gpu {
         let (cpu_portion, gpu_portion) = partition_for_hardware(len);
         
         // Spawn CPU work
@@ -726,11 +909,36 @@ where
         cpu_handle.join();
         gpu_future.await;
     } else {
-        // CPU only
+        // CPU only (DEFAULT path - GPU disabled or not available)
         data.par_iter_mut().for_each(&f);
     }
     
     ComputeResult::Ok
+}
+```
+
+### GPU Availability Check
+
+```rust
+/// Check if GPU compute can be used
+/// Returns false unless BOTH conditions are met:
+/// 1. Boot parameter gpu_compute=enabled
+/// 2. Compatible GPU hardware detected
+pub fn is_gpu_available() -> bool {
+    let config = get_boot_config();
+    
+    if !config.gpu_compute_enabled {
+        // GPU compute not enabled at boot - always return false
+        return false;
+    }
+    
+    // Check for hardware
+    is_gpu_hardware_present()
+}
+
+/// Check for GPU hardware (internal)
+fn is_gpu_hardware_present() -> bool {
+    GPU_DEVICE.lock().is_some()
 }
 ```
 
@@ -924,26 +1132,38 @@ libdebos/src/
 └── async_net.rs    # Async networking
 ```
 
-### Phase 4D: GPU Compute (Week 9-12)
+### Phase 4D: GPU Compute (Week 9-12) - OPTIONAL
 
-**Goal:** Unified CPU/GPU compute model
+**Goal:** Unified CPU/GPU compute model (opt-in feature)
 
-- [ ] GPU device enumeration
+> ⚠️ **Note:** GPU compute is disabled by default and must be enabled via boot parameters.
+> The system works fully without GPU - this phase adds optional acceleration.
+
+- [ ] Boot parameter parsing (`gpu_compute=enabled`)
+- [ ] GPU device enumeration (when enabled)
 - [ ] Unified memory management
 - [ ] GPU task submission
 - [ ] CPU/GPU work partitioning
-- [ ] Metal backend (Apple Silicon)
-- [ ] Vulkan compute backend (optional)
+- [ ] Metal backend (Apple Silicon/macOS)
+- [ ] Vulkan compute backend (Linux/Windows)
+- [ ] Graceful fallback when GPU unavailable
 
 **Deliverables:**
 ```
 kernel/src/gpu/
-├── mod.rs          # GPU subsystem
+├── mod.rs          # GPU subsystem (with enable check)
+├── config.rs       # Boot configuration parsing
 ├── device.rs       # Device management
 ├── memory.rs       # Unified memory
 ├── scheduler.rs    # GPU task scheduler
-├── metal.rs        # Metal backend
-└── vulkan.rs       # Vulkan backend
+├── metal.rs        # Metal backend (macOS)
+└── vulkan.rs       # Vulkan backend (Linux/Windows)
+```
+
+**Boot Configuration:**
+```
+kernel/src/boot/
+└── config.rs       # Parse gpu_compute, gpu_scheduler, etc.
 ```
 
 ---

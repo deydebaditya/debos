@@ -400,16 +400,20 @@ For each driver (e.g., `drivers/virtio_net`):
 - [ ] Batched syscall submission
 - [ ] Async file and socket operations
 
-### 4.4 GPU Compute Integration
+### 4.4 GPU Compute Integration (Opt-in, Disabled by Default)
 
-**Unified CPU/GPU compute model**
+**Unified CPU/GPU compute model - must be enabled at boot**
 
-- [ ] GPU device enumeration and management
+> ⚠️ GPU compute is **disabled by default**. Enable via: `gpu_compute=enabled`
+
+- [ ] Boot parameter parsing (`gpu_compute=enabled|disabled`)
+- [ ] GPU device enumeration (only when enabled)
 - [ ] Unified memory addressing (CPU/GPU shared)
 - [ ] GPU task submission and scheduling
 - [ ] Automatic CPU/GPU work partitioning
-- [ ] Metal backend (Apple Silicon)
-- [ ] Vulkan compute backend (optional)
+- [ ] Metal backend (Apple Silicon/macOS)
+- [ ] Vulkan compute backend (Linux/Windows)
+- [ ] Graceful CPU-only fallback
 
 ### 4.5 User-Space API (libdebos)
 
