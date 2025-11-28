@@ -8,17 +8,25 @@
 //! - Synchronous RPC-style communication
 //! - Zero-copy for large messages (via shared memory)
 //! - Direct switch optimization (L4-style)
+//!
+//! ## Direct Switch Optimization
+//! When a thread makes an IPC call and there's a receiver waiting,
+//! we switch directly to the receiver without going through the scheduler.
+//! This reduces latency from ~2 context switches to ~1.
 
 pub mod endpoint;
 pub mod message;
 
 use alloc::collections::BTreeMap;
 use spin::Mutex;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 
 use endpoint::Endpoint;
 pub use crate::scheduler::ThreadId;
-use crate::scheduler::{block_current, unblock};
+use crate::scheduler::{block_current, unblock, direct_switch_to};
+
+/// Flag to enable/disable direct switch optimization
+static DIRECT_SWITCH_ENABLED: AtomicBool = AtomicBool::new(true);
 
 /// Endpoint ID type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -50,6 +58,11 @@ pub fn destroy_endpoint(id: EndpointId) {
 /// Send a message and wait for reply (blocking call)
 /// 
 /// This is the primary IPC mechanism - synchronous RPC-style communication.
+/// 
+/// ## Direct Switch Optimization
+/// When a receiver is waiting, we switch directly to it instead of
+/// going through the scheduler. This is the L4-style IPC optimization
+/// that makes microkernel IPC fast.
 pub fn ipc_call(
     endpoint: EndpointId,
     message: &[u8],
@@ -73,13 +86,23 @@ pub fn ipc_call(
     // Mark ourselves as waiting for reply
     WAITING_FOR_REPLY.lock().insert(current_tid, endpoint);
     
-    // If there's a receiver, wake them up (direct switch optimization candidate)
+    // Direct switch optimization:
+    // If there's a receiver waiting and direct switch is enabled,
+    // switch directly to the receiver thread without going through
+    // the scheduler. This saves one full context switch.
     if let Some(receiver) = receiver_tid {
-        unblock(receiver);
+        if DIRECT_SWITCH_ENABLED.load(Ordering::Relaxed) {
+            // Direct switch to receiver - we'll be resumed when they reply
+            direct_switch_to(receiver);
+        } else {
+            // Fall back to regular scheduling
+            unblock(receiver);
+            block_current();
+        }
+    } else {
+        // No receiver waiting, just block
+        block_current();
     }
-    
-    // Block until we get a reply
-    block_current();
     
     // We've been woken up - get the reply
     let reply_len = {
@@ -91,6 +114,16 @@ pub fn ipc_call(
     WAITING_FOR_REPLY.lock().remove(&current_tid);
     
     Ok(reply_len)
+}
+
+/// Enable or disable direct switch optimization
+pub fn set_direct_switch_enabled(enabled: bool) {
+    DIRECT_SWITCH_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// Check if direct switch optimization is enabled
+pub fn is_direct_switch_enabled() -> bool {
+    DIRECT_SWITCH_ENABLED.load(Ordering::Relaxed)
 }
 
 /// Wait for a message on an endpoint (server-side)
@@ -125,6 +158,9 @@ pub fn ipc_wait(endpoint: EndpointId, buffer: &mut [u8]) -> Result<(usize, Threa
 }
 
 /// Send a reply to a waiting caller
+/// 
+/// Uses direct switch optimization to immediately switch back to the
+/// caller thread, reducing IPC round-trip latency.
 pub fn ipc_reply(endpoint: EndpointId, caller: ThreadId, reply: &[u8]) -> Result<(), IpcError> {
     // Store reply in endpoint
     {
@@ -133,8 +169,14 @@ pub fn ipc_reply(endpoint: EndpointId, caller: ThreadId, reply: &[u8]) -> Result
         ep.set_reply(reply)?;
     }
     
-    // Wake up the caller
-    unblock(caller);
+    // Direct switch back to caller if optimization is enabled
+    if DIRECT_SWITCH_ENABLED.load(Ordering::Relaxed) {
+        // Direct switch to caller - they'll resume in ipc_call
+        direct_switch_to(caller);
+    } else {
+        // Fall back to regular unblock
+        unblock(caller);
+    }
     
     Ok(())
 }

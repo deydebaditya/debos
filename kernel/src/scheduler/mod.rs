@@ -209,6 +209,57 @@ pub fn unblock(tid: ThreadId) {
     SCHEDULER.lock().unblock(tid);
 }
 
+/// Direct switch to a specific thread (L4-style IPC optimization)
+/// 
+/// This is used for fast IPC - when a sender has a message for a waiting
+/// receiver, we switch directly to the receiver without going through
+/// the scheduler. This reduces IPC latency significantly.
+/// 
+/// The current thread is blocked and the target thread runs immediately.
+pub fn direct_switch_to(tid: ThreadId) {
+    let mut scheduler = SCHEDULER.lock();
+    
+    // Find the target thread in blocked list
+    if let Some(pos) = scheduler.blocked.iter().position(|t| t.id == tid) {
+        let mut target = scheduler.blocked.swap_remove(pos);
+        target.state = ThreadState::Running;
+        
+        if let Some(mut current) = scheduler.current.take() {
+            // Block current thread
+            current.state = ThreadState::Blocked;
+            
+            // Context switch directly to target
+            let old_ctx = &mut current.context as *mut ArchContext;
+            let new_ctx = &target.context as *const ArchContext;
+            
+            // Move current to blocked, target becomes current
+            scheduler.blocked.push(current);
+            scheduler.current = Some(target);
+            
+            // Drop the lock before context switch
+            drop(scheduler);
+            
+            unsafe {
+                context_switch(old_ctx, new_ctx);
+            }
+        } else {
+            // No current thread (shouldn't happen in normal operation)
+            let new_ctx = &target.context as *const ArchContext;
+            scheduler.current = Some(target);
+            
+            drop(scheduler);
+            
+            unsafe {
+                context_switch_first(new_ctx);
+            }
+        }
+    } else {
+        // Target not found in blocked list - fall back to regular blocking
+        drop(scheduler);
+        block_current();
+    }
+}
+
 /// Get the current thread ID
 pub fn current_tid() -> Option<ThreadId> {
     SCHEDULER.lock().current.as_ref().map(|t| t.id)

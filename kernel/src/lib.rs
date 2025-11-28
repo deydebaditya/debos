@@ -39,6 +39,10 @@ pub fn kernel_init() -> ! {
     scheduler::init();
     println!("[OK] Scheduler initialized");
     
+    println!("[..] Initializing syscall interface...");
+    syscall::init();
+    println!("[OK] Syscall interface initialized");
+    
     println!("[..] Initializing filesystem...");
     fs::init();
     println!("[OK] Filesystem initialized");

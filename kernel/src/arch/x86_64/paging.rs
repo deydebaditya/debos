@@ -168,3 +168,55 @@ pub mod flags {
     );
 }
 
+// Re-export PageTableFlags as PageFlags for use by syscall handlers
+pub use x86_64::structures::paging::PageTableFlags as PageFlags;
+
+/// Map a virtual address to a physical address with specified flags
+/// 
+/// This is a simpler interface for syscall handlers.
+pub fn map_page_simple(virt_addr: usize, phys_addr: usize, flags: PageFlags) -> Result<(), &'static str> {
+    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(virt_addr as u64));
+    let frame = PhysFrame::containing_address(PhysAddr::new(phys_addr as u64));
+    
+    map_page(page, frame, flags)
+}
+
+/// Alias for map_page_simple for syscall compatibility
+pub fn map_page(virt_addr: usize, phys_addr: usize, flags: PageFlags) -> Result<(), &'static str> {
+    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(virt_addr as u64));
+    let frame = PhysFrame::containing_address(PhysAddr::new(phys_addr as u64));
+    
+    unsafe {
+        let mapper = MAPPER.as_mut().ok_or("Paging not initialized")?;
+        let frame_allocator = FRAME_ALLOCATOR.as_mut().ok_or("Frame allocator not initialized")?;
+        
+        mapper
+            .map_to(page, frame, flags, frame_allocator)
+            .map_err(|_| "Failed to map page")?
+            .flush();
+        
+        Ok(())
+    }
+}
+
+/// Unmap a virtual page
+pub fn unmap_page(virt_addr: usize) {
+    use x86_64::structures::paging::Mapper;
+    
+    let page = Page::<Size4KiB>::containing_address(VirtAddr::new(virt_addr as u64));
+    
+    unsafe {
+        if let Some(mapper) = MAPPER.as_mut() {
+            if let Ok((_, flush)) = mapper.unmap(page) {
+                flush.flush();
+            }
+        }
+    }
+}
+
+/// Get the physical address for a virtual address
+pub fn get_physical_address(virt_addr: usize) -> Option<usize> {
+    translate_addr(VirtAddr::new(virt_addr as u64))
+        .map(|pa| pa.as_u64() as usize)
+}
+

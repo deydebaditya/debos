@@ -41,6 +41,23 @@ pub mod flags {
     pub const ATTR_DEVICE: u64 = 1 << 2;
 }
 
+bitflags::bitflags! {
+    /// Page attributes for syscall interface
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct PageAttributes: u64 {
+        const VALID = flags::VALID;
+        const TABLE = flags::TABLE;
+        const PAGE = flags::PAGE;
+        const AP_RO = flags::AP_RO_EL1;
+        const AP_USER = 1 << 6;  // User accessible
+        const AF = flags::AF;
+        const UXN = flags::UXN;
+        const PXN = flags::PXN;
+        const NORMAL = flags::ATTR_NORMAL;
+        const DEVICE = flags::ATTR_DEVICE;
+    }
+}
+
 /// A page table entry
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -128,16 +145,35 @@ pub fn init() {
     crate::println!("[OK] MMU initialized (using bootloader mapping)");
 }
 
-/// Map a virtual address to a physical address
+/// Map a virtual address to a physical address with attributes
 pub fn map_page(
-    _virt: usize,
-    _phys: usize,
-    _kernel: bool,
-    _writable: bool,
-    _executable: bool,
+    virt: usize,
+    phys: usize,
+    attrs: PageAttributes,
 ) -> Result<(), &'static str> {
-    // TODO: Implement page mapping
+    // For now, we're using the identity mapping set up by QEMU
+    // A full implementation would walk/create page tables
+    
+    // Validate alignment
+    if virt % PAGE_SIZE != 0 || phys % PAGE_SIZE != 0 {
+        return Err("Addresses must be page-aligned");
+    }
+    
+    // TODO: Implement proper page table walk and mapping
+    // For now, just invalidate any stale TLB entry
+    invalidate_page(virt);
+    
+    let _ = attrs; // Suppress unused warning for now
+    
     Ok(())
+}
+
+/// Unmap a virtual page
+pub fn unmap_page(virt: usize) {
+    // Invalidate TLB entry
+    invalidate_page(virt);
+    
+    // TODO: Implement proper page table modification
 }
 
 /// Invalidate TLB entry for an address

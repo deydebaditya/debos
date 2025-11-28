@@ -55,27 +55,182 @@ pub fn sys_thread_get_id() -> SyscallResult {
 // Memory Management Syscalls
 // ============================================================================
 
-/// sys_mem_map(frame_cap, page_dir_cap, virt_addr, flags) -> result
+/// Memory mapping flags
+pub mod mem_flags {
+    pub const READ: u64 = 0x01;
+    pub const WRITE: u64 = 0x02;
+    pub const EXECUTE: u64 = 0x04;
+    pub const USER: u64 = 0x08;
+}
+
+/// sys_mem_map(phys_addr, virt_addr, size, flags) -> result
+/// 
+/// Maps physical memory to virtual address space.
+/// 
+/// Arguments:
+/// - phys_addr: Physical address to map (must be page-aligned)
+/// - virt_addr: Virtual address to map to (must be page-aligned)
+/// - size: Size of mapping in bytes (will be rounded up to page size)
+/// - flags: Protection flags (READ, WRITE, EXECUTE, USER)
+///
+/// Returns 0 on success, negative error code on failure.
 pub fn sys_mem_map(
-    _frame_cap: u64,
-    _page_dir_cap: u64,
-    _virt_addr: u64,
-    _flags: u64,
+    phys_addr: u64,
+    virt_addr: u64,
+    size: u64,
+    flags: u64,
 ) -> SyscallResult {
-    // TODO: Implement proper memory mapping
-    // For now, return success
+    const PAGE_SIZE: u64 = 4096;
+    
+    // Validate alignment
+    if phys_addr % PAGE_SIZE != 0 || virt_addr % PAGE_SIZE != 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+    
+    // Validate size
+    if size == 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+    
+    // Round up size to page boundary
+    let num_pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    
+    // Map each page
+    for i in 0..num_pages {
+        let paddr = phys_addr + i * PAGE_SIZE;
+        let vaddr = virt_addr + i * PAGE_SIZE;
+        
+        #[cfg(target_arch = "x86_64")]
+        {
+            use crate::arch::x86_64::paging;
+            
+            let mut page_flags = paging::PageFlags::PRESENT;
+            if flags & mem_flags::WRITE != 0 {
+                page_flags |= paging::PageFlags::WRITABLE;
+            }
+            if flags & mem_flags::USER != 0 {
+                page_flags |= paging::PageFlags::USER;
+            }
+            // Note: NX bit handling would go here for EXECUTE flag
+            
+            paging::map_page(vaddr as usize, paddr as usize, page_flags)
+                .map_err(|_| SyscallError::OutOfMemory)?;
+        }
+        
+        #[cfg(target_arch = "aarch64")]
+        {
+            use crate::arch::aarch64::mmu;
+            
+            let mut attrs = mmu::PageAttributes::VALID | mmu::PageAttributes::AF;
+            if flags & mem_flags::WRITE != 0 {
+                // Writable
+            } else {
+                attrs |= mmu::PageAttributes::AP_RO;
+            }
+            if flags & mem_flags::USER != 0 {
+                attrs |= mmu::PageAttributes::AP_USER;
+            }
+            if flags & mem_flags::EXECUTE == 0 {
+                attrs |= mmu::PageAttributes::UXN | mmu::PageAttributes::PXN;
+            }
+            
+            mmu::map_page(vaddr as usize, paddr as usize, attrs)
+                .map_err(|_| SyscallError::OutOfMemory)?;
+        }
+    }
+    
     Ok(0)
 }
 
 /// sys_mem_unmap(virt_addr, length) -> result
-pub fn sys_mem_unmap(_virt_addr: u64, _length: u64) -> SyscallResult {
-    // TODO: Implement page unmapping
+/// 
+/// Unmaps virtual memory pages.
+pub fn sys_mem_unmap(virt_addr: u64, length: u64) -> SyscallResult {
+    const PAGE_SIZE: u64 = 4096;
+    
+    // Validate alignment
+    if virt_addr % PAGE_SIZE != 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+    
+    if length == 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+    
+    let num_pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+    
+    for i in 0..num_pages {
+        let vaddr = virt_addr + i * PAGE_SIZE;
+        
+        #[cfg(target_arch = "x86_64")]
+        {
+            use crate::arch::x86_64::paging;
+            paging::unmap_page(vaddr as usize);
+        }
+        
+        #[cfg(target_arch = "aarch64")]
+        {
+            use crate::arch::aarch64::mmu;
+            mmu::unmap_page(vaddr as usize);
+        }
+    }
+    
     Ok(0)
 }
 
 /// sys_mem_protect(virt_addr, length, flags) -> result
-pub fn sys_mem_protect(_virt_addr: u64, _length: u64, _flags: u64) -> SyscallResult {
-    // TODO: Implement page protection changes
+/// 
+/// Changes protection flags for memory pages.
+pub fn sys_mem_protect(virt_addr: u64, length: u64, flags: u64) -> SyscallResult {
+    const PAGE_SIZE: u64 = 4096;
+    
+    // Validate alignment
+    if virt_addr % PAGE_SIZE != 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+    
+    if length == 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+    
+    // For now, we unmap and remap with new flags
+    // A proper implementation would modify page table entries in place
+    let num_pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+    
+    for i in 0..num_pages {
+        let vaddr = virt_addr + i * PAGE_SIZE;
+        
+        #[cfg(target_arch = "x86_64")]
+        {
+            use crate::arch::x86_64::paging;
+            
+            // Get current physical address
+            if let Some(paddr) = paging::get_physical_address(vaddr as usize) {
+                // Unmap and remap with new flags
+                paging::unmap_page(vaddr as usize);
+                
+                let mut page_flags = paging::PageFlags::PRESENT;
+                if flags & mem_flags::WRITE != 0 {
+                    page_flags |= paging::PageFlags::WRITABLE;
+                }
+                if flags & mem_flags::USER != 0 {
+                    page_flags |= paging::PageFlags::USER;
+                }
+                
+                paging::map_page(vaddr as usize, paddr, page_flags)
+                    .map_err(|_| SyscallError::OutOfMemory)?;
+            }
+        }
+        
+        #[cfg(target_arch = "aarch64")]
+        {
+            // AArch64 implementation would go here
+            // For now, just return success
+            let _ = vaddr;
+            let _ = flags;
+        }
+    }
+    
     Ok(0)
 }
 

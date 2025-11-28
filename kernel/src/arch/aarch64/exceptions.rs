@@ -184,7 +184,7 @@ pub fn init() {
 
 /// Handle synchronous exceptions
 #[no_mangle]
-extern "C" fn handle_sync_exception(ctx: &ExceptionContext) {
+extern "C" fn handle_sync_exception(ctx: &mut ExceptionContext) {
     let esr = ctx.esr;
     let ec = (esr >> 26) & 0x3F;  // Exception Class
     let iss = esr & 0x1FFFFFF;     // Instruction Specific Syndrome
@@ -216,9 +216,36 @@ extern "C" fn handle_sync_exception(ctx: &ExceptionContext) {
 }
 
 /// Handle SVC (system call)
-fn handle_svc(_ctx: &ExceptionContext, _svc_num: u16) {
-    // TODO: Implement system call handling
-    crate::println!("[SVC] System call");
+/// 
+/// AArch64 syscall ABI:
+/// - X8: syscall number
+/// - X0-X5: arguments
+/// - X0: return value
+fn handle_svc(ctx: &mut ExceptionContext, _svc_num: u16) {
+    use crate::syscall::{SyscallNumber, SyscallError};
+    use crate::syscall::dispatcher::dispatch_syscall;
+    
+    // Get syscall number from X8
+    let syscall_num = ctx.gpr[8];
+    
+    // Get arguments from X0-X5
+    let arg1 = ctx.gpr[0];
+    let arg2 = ctx.gpr[1];
+    let arg3 = ctx.gpr[2];
+    let arg4 = ctx.gpr[3];
+    let arg5 = ctx.gpr[4];
+    
+    // Dispatch the syscall
+    let result = match SyscallNumber::try_from(syscall_num) {
+        Ok(num) => dispatch_syscall(num, arg1, arg2, arg3, arg4, arg5),
+        Err(_) => Err(SyscallError::InvalidSyscall),
+    };
+    
+    // Set return value in X0
+    ctx.gpr[0] = match result {
+        Ok(val) => val,
+        Err(err) => err as i64 as u64,
+    };
 }
 
 /// Handle IRQ

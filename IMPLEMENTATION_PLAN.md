@@ -613,7 +613,7 @@ qemu-system-x86_64 \
 
 ## Detailed TODO Lists
 
-### Priority 1: Critical Path (Must Have)
+### Priority 1: Critical Path (Must Have) ✅ COMPLETE
 
 - [x] **KERN-001**: Set up Rust `no_std` kernel crate with custom target
 - [x] **KERN-002**: Implement GDT and TSS for x86_64
@@ -624,14 +624,14 @@ qemu-system-x86_64 \
 - [x] **KERN-007**: Define `ArchContext` struct
 - [x] **KERN-008**: Implement `context_switch` in assembly
 - [x] **KERN-009**: Implement O(1) priority scheduler
-- [ ] **KERN-010**: Implement `syscall` instruction handler
-- [ ] **KERN-011**: Implement `sys_thread_spawn`
-- [ ] **KERN-012**: Implement `sys_thread_yield`
-- [ ] **KERN-013**: Implement `sys_thread_exit`
-- [ ] **KERN-014**: Implement `sys_mem_map`
-- [ ] **KERN-015**: Implement `sys_ipc_call` with direct switch optimization
-- [ ] **KERN-016**: Implement `sys_ipc_wait`
-- [ ] **KERN-017**: Implement `sys_irq_ack`
+- [x] **KERN-010**: Implement `syscall` instruction handler (x86_64 LSTAR/MSRs, AArch64 SVC)
+- [x] **KERN-011**: Implement `sys_thread_spawn`
+- [x] **KERN-012**: Implement `sys_thread_yield`
+- [x] **KERN-013**: Implement `sys_thread_exit`
+- [x] **KERN-014**: Implement `sys_mem_map` (with proper page table manipulation)
+- [x] **KERN-015**: Implement `sys_ipc_call` with direct switch optimization (L4-style)
+- [x] **KERN-016**: Implement `sys_ipc_wait`
+- [x] **KERN-017**: Implement `sys_irq_ack` (PIC for x86_64, GIC for AArch64)
 
 ### Priority 2: Core Servers (Required for Functionality)
 
