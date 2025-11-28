@@ -6,13 +6,25 @@
 
 pub mod virtio;
 pub mod block;
+pub mod device;
+pub mod input;
+pub mod net;
 
 /// Initialize all drivers
 pub fn init() {
     crate::println!("[..] Initializing drivers...");
     
+    // Initialize Device Manager
+    device::init();
+    
     // Initialize VirtIO subsystem
     virtio::init();
+    
+    // Initialize Input subsystem
+    input::init();
+    
+    // Initialize Network subsystem
+    net::init();
     
     crate::println!("[OK] Drivers initialized");
 }
