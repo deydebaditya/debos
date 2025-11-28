@@ -139,6 +139,7 @@ impl Shell {
         let args = &parts[1..];
         
         match command {
+            // System commands
             "help" | "?" => commands::help(args),
             "info" | "sysinfo" => commands::sysinfo(args),
             "mem" | "memory" => commands::memory(args),
@@ -147,9 +148,25 @@ impl Shell {
             "clear" | "cls" => commands::clear(args),
             "uptime" => commands::uptime(args),
             "reboot" => commands::reboot(args),
+            
+            // Filesystem commands
+            "pwd" => commands::pwd(args),
+            "ls" | "dir" => commands::ls(args),
+            "cd" => commands::cd(args),
+            "mkdir" => commands::mkdir(args),
+            "rmdir" => commands::rmdir(args),
+            "touch" => commands::touch(args),
+            "cat" | "type" => commands::cat(args),
+            "rm" | "del" => commands::rm(args),
+            "write" => commands::write_file(args),
+            "stat" => commands::stat_cmd(args),
+            "tree" => commands::tree(args),
+            
+            // Exit
             "exit" | "quit" => {
                 self.running = false;
             }
+            
             _ => {
                 println!("Unknown command: '{}'. Type 'help' for available commands.", command);
             }

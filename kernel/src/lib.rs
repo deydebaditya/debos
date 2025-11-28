@@ -25,6 +25,7 @@ pub mod scheduler;
 pub mod ipc;
 pub mod syscall;
 pub mod capability;
+pub mod fs;
 pub mod shell;
 
 // ============================================================================
@@ -37,6 +38,10 @@ pub fn kernel_init() -> ! {
     println!("[..] Initializing scheduler...");
     scheduler::init();
     println!("[OK] Scheduler initialized");
+    
+    println!("[..] Initializing filesystem...");
+    fs::init();
+    println!("[OK] Filesystem initialized");
     
     // Enable interrupts
     println!("[..] Enabling interrupts...");
