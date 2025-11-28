@@ -616,8 +616,24 @@ MIT OR Apache-2.0
 
 ---
 
+## Running in VirtualBox
+
+DebOS can be run in VirtualBox for a more traditional VM experience. See the [VirtualBox Setup Guide](docs/VIRTUALBOX_SETUP.md) for detailed instructions.
+
+**Quick Start:**
+```bash
+# Build kernel and create bootable ISO
+make build-x86
+make iso-x86
+
+# Then create a VM in VirtualBox and boot from debos.iso
+```
+
+**Note:** VirtualBox requires x86_64 builds. AArch64 builds only work in QEMU.
+
 ## Resources
 
 - [Implementation Plan](IMPLEMENTATION_PLAN.md) - Detailed development roadmap
 - [Test Report](TEST_REPORT.md) - Comprehensive test results
+- [VirtualBox Setup Guide](docs/VIRTUALBOX_SETUP.md) - Running DebOS in VirtualBox
 - [Developer Documentation](docs/developer/) - Technical deep-dives

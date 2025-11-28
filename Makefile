@@ -7,7 +7,7 @@
 # The guest OS can only access virtual disks provided explicitly via -drive flags.
 # Your MacBook's storage is completely safe during development and testing.
 
-.PHONY: help build-x86 build-arm run-x86 run-arm clean docker-build docker-run-x86 docker-run-arm check fmt
+.PHONY: help build-x86 build-arm run-x86 run-arm clean docker-build docker-run-x86 docker-run-arm check fmt iso-x86 vdi-x86 clean-images
 
 # Detect host architecture
 UNAME_M := $(shell uname -m)
@@ -58,6 +58,11 @@ help:
 	@echo "  make check        - Run cargo check for both architectures"
 	@echo "  make fmt          - Format code"
 	@echo "  make clean        - Clean build artifacts"
+	@echo ""
+	@echo "VirtualBox Commands:"
+	@echo "  make iso-x86      - Create bootable ISO for VirtualBox (x86_64)"
+	@echo "  make vdi-x86      - Convert disk image to VDI format"
+	@echo "  make clean-images - Remove ISO and VDI files"
 	@echo ""
 	@echo "To exit QEMU: Press Ctrl+A then X"
 
@@ -196,3 +201,78 @@ run-x86-full: build-x86 test_disk.img
 		-device virtio-blk-pci,drive=hd0 \
 		-device virtio-net-pci,netdev=net0 \
 		-netdev user,id=net0,hostfwd=tcp::2222-:22
+
+# ============================================================================
+# VirtualBox Support
+# ============================================================================
+
+# Create bootable ISO for VirtualBox (x86_64)
+# Requires: grub-mkrescue or xorriso
+# Note: x86_64 kernel uses bootloader_api, so this creates a basic ISO structure
+# Full bootloader integration is planned for future releases
+iso-x86: build-x86
+	@echo "Creating bootable ISO for VirtualBox..."
+	@echo "Note: x86_64 kernel uses bootloader_api - full ISO boot support is in development"
+	@mkdir -p iso/boot/grub
+	@cp $(X86_KERNEL) iso/boot/debos-kernel
+	@cat > iso/boot/grub/grub.cfg << 'GRUBEOF' || true
+set timeout=5
+set default=0
+
+menuentry "DebOS" {
+    # Try multiboot2 first (if kernel supports it)
+    multiboot2 /boot/debos-kernel
+    boot
+}
+
+menuentry "DebOS (legacy)" {
+    # Fallback to multiboot (legacy)
+    multiboot /boot/debos-kernel
+    boot
+}
+GRUBEOF
+	@if command -v grub-mkrescue >/dev/null 2>&1; then \
+		echo "Using grub-mkrescue..."; \
+		grub-mkrescue -o debos.iso iso 2>/dev/null || \
+		grub-mkrescue --compress=xz -o debos.iso iso; \
+	elif command -v xorriso >/dev/null 2>&1; then \
+		echo "Using xorriso (basic ISO, may need GRUB installed separately)..."; \
+		xorriso -as mkisofs -R -J -o debos.iso iso; \
+		echo "WARNING: This ISO may not be bootable without GRUB bootloader"; \
+		echo "Consider installing GRUB or using QEMU instead (make run-x86)"; \
+	else \
+		echo "ERROR: grub-mkrescue or xorriso not found"; \
+		echo ""; \
+		echo "Install options:"; \
+		echo "  macOS:    brew install xorriso"; \
+		echo "  Ubuntu:   sudo apt-get install grub-pc-bin xorriso"; \
+		echo "  Fedora:   sudo dnf install grub2-efi-x64-modules xorriso"; \
+		echo ""; \
+		echo "Alternative: Use QEMU instead (make run-x86)"; \
+		exit 1; \
+	fi
+	@rm -rf iso
+	@echo ""
+	@echo "Created debos.iso"
+	@echo "Note: If boot fails, the kernel may need bootloader_api integration"
+	@echo "For now, QEMU (make run-x86) is the most reliable way to run DebOS"
+
+# Create VDI disk image from raw image (for VirtualBox)
+vdi-x86: test_disk.img
+	@echo "Converting disk image to VDI format..."
+	@if command -v VBoxManage >/dev/null 2>&1; then \
+		VBoxManage convertfromraw test_disk.img debos-disk.vdi --format VDI; \
+		echo "Created debos-disk.vdi"; \
+	elif command -v qemu-img >/dev/null 2>&1; then \
+		qemu-img convert -f raw -O vdi test_disk.img debos-disk.vdi; \
+		echo "Created debos-disk.vdi"; \
+	else \
+		echo "ERROR: VBoxManage or qemu-img not found"; \
+		echo "Install VirtualBox or QEMU to convert disk images"; \
+		exit 1; \
+	fi
+
+# Clean ISO and VDI files
+clean-images:
+	@rm -f debos.iso debos-disk.vdi
+	@echo "Cleaned ISO and VDI images"
