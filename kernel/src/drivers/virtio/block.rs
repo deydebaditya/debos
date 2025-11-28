@@ -193,7 +193,7 @@ impl VirtioBlockDevice {
         // Add to queue
         {
             let mut queue = self.queue.lock();
-            queue.add_buffer(&buffers).map_err(|_| BlockError::QueueFull)?;
+            queue.add_buffer_chain(&buffers).map_err(|_| BlockError::QueueFull)?;
         }
         
         // Notify device
@@ -267,7 +267,7 @@ impl VirtioBlockDevice {
         // Add to queue
         {
             let mut queue = self.queue.lock();
-            queue.add_buffer(&buffers).map_err(|_| BlockError::QueueFull)?;
+            queue.add_buffer_chain(&buffers).map_err(|_| BlockError::QueueFull)?;
         }
         
         // Notify device

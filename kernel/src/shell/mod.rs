@@ -189,6 +189,17 @@ impl Shell {
             "sudo" => commands::sudo(args),
             "login" => commands::login(args),
             
+            // Network commands
+            "ifconfig" => commands::ifconfig(args),
+            "ping" => commands::ping(args),
+            "arp" => commands::arp(args),
+            "netstat" => commands::netstat(args),
+            
+            // Device commands
+            "devices" | "lsdev" => commands::devices(args),
+            "lspci" => commands::lspci(args),
+            "lsusb" => commands::lsusb(args),
+            
             // Exit
             "exit" | "quit" | "logout" => {
                 self.running = false;

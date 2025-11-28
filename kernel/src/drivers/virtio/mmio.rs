@@ -120,6 +120,70 @@ impl MmioDevice {
         })
     }
     
+    /// Create a new MMIO device handle (without IRQ, for probing)
+    pub fn probe(base: usize) -> Result<Self, &'static str> {
+        Self::new(base, 0).ok_or("No VirtIO device at this address")
+    }
+    
+    /// Get device ID
+    pub fn device_id(&self) -> u32 {
+        match self.device_type {
+            DeviceType::Network => 1,
+            DeviceType::Block => 2,
+            DeviceType::Console => 3,
+            DeviceType::Entropy => 4,
+            DeviceType::Balloon => 5,
+            DeviceType::ScsiHost => 8,
+            DeviceType::Gpu => 16,
+            DeviceType::Input => 18,
+            DeviceType::Socket => 19,
+            DeviceType::Invalid => 0,
+        }
+    }
+    
+    /// Set device status (replaces current status)
+    pub fn set_status(&self, status: u32) {
+        self.write_reg(regs::STATUS, status);
+    }
+    
+    /// Select a queue
+    pub fn select_queue(&self, idx: u16) {
+        self.write_reg(regs::QUEUE_SEL, idx as u32);
+    }
+    
+    /// Set queue size
+    pub fn set_queue_size(&self, size: u16) {
+        self.write_reg(regs::QUEUE_NUM, size as u32);
+    }
+    
+    /// Set queue descriptor address
+    pub fn set_queue_desc(&self, addr: u64) {
+        self.write_reg(regs::QUEUE_DESC_LOW, addr as u32);
+        self.write_reg(regs::QUEUE_DESC_HIGH, (addr >> 32) as u32);
+    }
+    
+    /// Set queue available ring address
+    pub fn set_queue_avail(&self, addr: u64) {
+        self.write_reg(regs::QUEUE_DRIVER_LOW, addr as u32);
+        self.write_reg(regs::QUEUE_DRIVER_HIGH, (addr >> 32) as u32);
+    }
+    
+    /// Set queue used ring address
+    pub fn set_queue_used(&self, addr: u64) {
+        self.write_reg(regs::QUEUE_DEVICE_LOW, addr as u32);
+        self.write_reg(regs::QUEUE_DEVICE_HIGH, (addr >> 32) as u32);
+    }
+    
+    /// Enable the current queue
+    pub fn enable_queue(&self) {
+        self.write_reg(regs::QUEUE_READY, 1);
+    }
+    
+    /// Notify device about queue activity
+    pub fn notify(&self, queue_idx: u16) {
+        self.write_reg(regs::QUEUE_NOTIFY, queue_idx as u32);
+    }
+    
     /// Get base address
     pub fn base_addr(&self) -> usize {
         self.base

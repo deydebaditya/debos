@@ -9,6 +9,8 @@ pub mod block;
 pub mod device;
 pub mod input;
 pub mod net;
+pub mod bus;
+pub mod usb;
 
 /// Initialize all drivers
 pub fn init() {
@@ -17,8 +19,14 @@ pub fn init() {
     // Initialize Device Manager
     device::init();
     
+    // Initialize Bus subsystem (PCI)
+    bus::init();
+    
     // Initialize VirtIO subsystem
     virtio::init();
+    
+    // Initialize USB subsystem
+    usb::init();
     
     // Initialize Input subsystem
     input::init();

@@ -124,6 +124,11 @@ impl VirtQueue {
         }
     }
     
+    /// Create a new VirtQueue (returns Result for compatibility)
+    pub fn create(index: u16, size: u16) -> Result<Self, &'static str> {
+        Ok(Self::new(index, size))
+    }
+    
     /// Get physical addresses for device configuration
     pub fn descriptor_area(&self) -> u64 {
         self.descriptors.as_ptr() as u64
@@ -135,6 +140,26 @@ impl VirtQueue {
     
     pub fn device_area(&self) -> u64 {
         self.used.as_ref() as *const UsedRing as u64
+    }
+    
+    /// Alias for descriptor_area
+    pub fn desc_addr(&self) -> u64 {
+        self.descriptor_area()
+    }
+    
+    /// Alias for driver_area
+    pub fn avail_addr(&self) -> u64 {
+        self.driver_area()
+    }
+    
+    /// Alias for device_area
+    pub fn used_addr(&self) -> u64 {
+        self.device_area()
+    }
+    
+    /// Alias for poll_used
+    pub fn pop_used(&mut self) -> Option<(usize, u32)> {
+        self.poll_used().map(|(idx, len)| (idx as usize, len))
     }
     
     /// Check if queue is full
@@ -183,7 +208,7 @@ impl VirtQueue {
     /// Add a buffer chain to the queue
     /// 
     /// Returns the descriptor chain head index
-    pub fn add_buffer(&mut self, bufs: &[(u64, u32, bool)]) -> Result<u16, &'static str> {
+    pub fn add_buffer_chain(&mut self, bufs: &[(u64, u32, bool)]) -> Result<u16, &'static str> {
         if bufs.is_empty() {
             return Err("Empty buffer list");
         }
@@ -221,6 +246,40 @@ impl VirtQueue {
         self.available.idx = self.available.idx.wrapping_add(1);
         
         // Track pending request
+        self.pending.push(head);
+        
+        Ok(head)
+    }
+    
+    /// Add a simple buffer (read addresses for device to read, write addresses for device to write to)
+    /// 
+    /// This is a simpler API: device reads from `readable` addrs, writes to current buffer
+    pub fn add_buffer(&mut self, readable: &[u64], _writable: &[u64], len: u32) -> Result<u16, &'static str> {
+        // For simple cases, we use the first readable address as a write buffer
+        if readable.is_empty() {
+            return Err("No buffer provided");
+        }
+        
+        if self.num_free == 0 {
+            return Err("Queue full");
+        }
+        
+        let head = self.alloc_descriptor().ok_or("No free descriptors")?;
+        
+        // Set up descriptor for device to write to
+        let desc = &mut self.descriptors[head as usize];
+        desc.addr = readable[0];
+        desc.len = len;
+        desc.flags = desc_flags::WRITE; // Device writes to this buffer
+        desc.next = 0;
+        
+        // Add to available ring
+        let avail_idx = self.available.idx as usize % self.size as usize;
+        self.available.ring[avail_idx] = head;
+        
+        fence(Ordering::SeqCst);
+        
+        self.available.idx = self.available.idx.wrapping_add(1);
         self.pending.push(head);
         
         Ok(head)

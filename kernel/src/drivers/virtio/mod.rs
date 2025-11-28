@@ -8,6 +8,9 @@
 //!
 //! ## Supported Devices
 //! - VirtIO-Block (Block storage)
+//! - VirtIO-Net (Networking)
+//! - VirtIO-Input (Keyboard/Mouse)
+//! - VirtIO-GPU (Display)
 //!
 //! ## References
 //! - VirtIO Specification: https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
@@ -15,6 +18,9 @@
 pub mod queue;
 pub mod mmio;
 pub mod block;
+pub mod net;
+pub mod input;
+pub mod gpu;
 
 use spin::Mutex;
 use alloc::vec::Vec;
@@ -90,15 +96,32 @@ pub fn init() {
         crate::println!("  Found VirtIO device: {:?} at 0x{:x}", 
             device.device_type(), device.base_addr());
             
-        // Initialize block devices
-        if device.device_type() == DeviceType::Block {
-            if let Err(e) = block::init_device(device) {
-                crate::println!("    Failed to initialize block device: {:?}", e);
+        match device.device_type() {
+            DeviceType::Block => {
+                if let Err(e) = block::init_device(device) {
+                    crate::println!("    Failed to initialize block device: {:?}", e);
+                }
             }
+            DeviceType::Network => {
+                // Network device will be initialized separately
+                crate::println!("    VirtIO-Net detected, will initialize with network stack");
+            }
+            DeviceType::Input => {
+                crate::println!("    VirtIO-Input detected");
+            }
+            DeviceType::Gpu => {
+                crate::println!("    VirtIO-GPU detected");
+            }
+            _ => {}
         }
     }
     
     *DEVICES.lock() = devices;
+    
+    // Initialize VirtIO-Net if available
+    if let Err(e) = net::init() {
+        crate::println!("  Note: VirtIO-Net not initialized: {:?}", e);
+    }
     
     crate::println!("  [OK] VirtIO initialized ({} devices)", DEVICES.lock().len());
 }

@@ -977,13 +977,22 @@ qemu-system-x86_64 \
 #### Phase 2D-TODO: Remaining Items
 - [ ] **SRV-001**: VFS Server migration to userspace
 - [ ] **SRV-002**: ext4 filesystem driver
-- [ ] **USB-001**: xHCI controller driver
-- [ ] **USB-002**: USB device enumeration
+- [x] **USB-001**: xHCI controller driver
+- [x] **USB-002**: USB device enumeration
 - [ ] **USB-003**: USB HID driver
 - [ ] **USB-004**: USB Mass Storage driver
-- [ ] **DISP-001**: Framebuffer abstraction
-- [ ] **DISP-002**: VirtIO-GPU driver
+- [x] **DISP-001**: Framebuffer abstraction (VirtIO-GPU)
+- [x] **DISP-002**: VirtIO-GPU driver
 - [ ] **DISP-003**: Text console over framebuffer
+
+#### Phase 2D-TODO: Infrastructure (Complete)
+- [x] **INFRA-001**: PCI/PCIe enumeration driver
+- [x] **INFRA-002**: USB subsystem with xHCI
+- [x] **INFRA-003**: VirtIO-Net driver connected to NetworkInterface
+- [x] **INFRA-004**: VirtIO-Input driver
+- [x] **INFRA-005**: VirtIO-GPU driver
+- [x] **NET-010**: Shell commands (ifconfig, ping, arp, netstat)
+- [x] **NET-011**: Shell commands (devices, lspci, lsusb)
 
 #### Phase 2F: Ultra-Fast I/O (100x Improvement) ⏳ PENDING
 

@@ -66,6 +66,17 @@ pub fn help(_args: &[&str]) {
     println!("  sudo <cmd>     - Run as admin");
     println!("  login          - Login as user");
     println!();
+    println!("Networking:");
+    println!("  ifconfig       - Show network interfaces");
+    println!("  ping <host>    - Ping a host (ICMP)");
+    println!("  arp            - Show ARP cache");
+    println!("  netstat        - Show network stats");
+    println!();
+    println!("Device Info:");
+    println!("  devices        - List all devices");
+    println!("  lspci          - List PCI devices");
+    println!("  lsusb          - List USB devices");
+    println!();
     println!("Other:");
     println!("  echo <text>    - Echo text to console");
     println!();
@@ -1487,4 +1498,212 @@ fn read_input_line() -> Option<alloc::string::String> {
             core::hint::spin_loop();
         }
     }
+}
+
+// ============================================================================
+// Network Commands
+// ============================================================================
+
+/// Show network interface configuration
+pub fn ifconfig(_args: &[&str]) {
+    use crate::drivers::net;
+    
+    println!("Network Interfaces:");
+    println!("===================");
+    println!();
+    
+    for name in net::list_interfaces() {
+        if let Some(iface) = net::get_interface(&name) {
+            println!("{}: flags={}", name, if iface.up { "UP" } else { "DOWN" });
+            println!("    mac:  {}", iface.mac);
+            
+            if let Some(ipv4) = iface.ipv4 {
+                println!("    inet: {}", ipv4);
+                if let Some(mask) = iface.netmask {
+                    println!("    mask: {}", mask);
+                }
+                if let Some(gw) = iface.gateway {
+                    println!("    gw:   {}", gw);
+                }
+            }
+            
+            println!("    mtu:  {}", iface.mtu);
+            println!("    RX:   {} packets, {} bytes", iface.rx_packets, iface.rx_bytes);
+            println!("    TX:   {} packets, {} bytes", iface.tx_packets, iface.tx_bytes);
+            println!();
+        }
+    }
+}
+
+/// Ping a host
+pub fn ping(args: &[&str]) {
+    use crate::drivers::net::{self, Ipv4Address};
+    
+    if args.is_empty() {
+        println!("Usage: ping <host>");
+        println!("Example: ping 10.0.2.2");
+        return;
+    }
+    
+    let host = args[0];
+    
+    // Parse IP address
+    let ip = match net::parse_ipv4(host) {
+        Some(ip) => ip,
+        None => {
+            println!("Invalid IP address: {}", host);
+            println!("Note: DNS resolution not yet implemented");
+            return;
+        }
+    };
+    
+    println!("PING {} ({}):", host, ip);
+    
+    // Check if we have VirtIO-Net
+    if !crate::drivers::virtio::net::is_available() {
+        println!("Error: No network interface available");
+        println!("Hint: Run with 'make run-arm-net' to enable networking");
+        return;
+    }
+    
+    // Create ICMP echo request
+    use crate::drivers::net::icmp;
+    let data = b"DebOS ping!";
+    let icmp_packet = icmp::create_echo_request(1, 1, data);
+    
+    // Create IPv4 packet
+    use crate::drivers::net::ipv4;
+    let src_ip = Ipv4Address::new(10, 0, 2, 15); // Our IP
+    let ip_packet = ipv4::create_packet(
+        src_ip,
+        ip,
+        ipv4::Protocol::ICMP,
+        64, // TTL
+        &icmp_packet,
+    );
+    
+    // Create Ethernet frame
+    use crate::drivers::net::{ethernet, MacAddress};
+    let src_mac = MacAddress::new([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
+    let dst_mac = MacAddress::BROADCAST; // Would use ARP in real implementation
+    let frame = ethernet::create_frame(dst_mac, src_mac, ethernet::EtherType::IPV4, &ip_packet);
+    
+    // Send packet
+    match crate::drivers::virtio::net::send_packet(&frame) {
+        Ok(_) => {
+            println!("Sent {} bytes to {}", frame.len(), ip);
+            println!("(Waiting for reply...)");
+            
+            // Poll for reply (simple version)
+            for _ in 0..100 {
+                if let Some(_reply) = crate::drivers::virtio::net::recv_packet() {
+                    println!("Reply received from {}", ip);
+                    return;
+                }
+                for _ in 0..10000 {
+                    core::hint::spin_loop();
+                }
+            }
+            println!("Request timed out");
+        }
+        Err(e) => {
+            println!("Failed to send: {}", e);
+        }
+    }
+}
+
+/// Show ARP cache
+pub fn arp(_args: &[&str]) {
+    use crate::drivers::net::arp;
+    
+    println!("ARP Cache:");
+    println!("==========");
+    println!();
+    println!("{:<20} {:<20}", "IP Address", "MAC Address");
+    println!("{:-<20} {:-<20}", "", "");
+    
+    let entries = arp::list_cache();
+    if entries.is_empty() {
+        println!("(empty)");
+    } else {
+        for (ip, mac) in entries {
+            println!("{:<20} {:<20}", alloc::format!("{}", ip), alloc::format!("{}", mac));
+        }
+    }
+}
+
+/// Show network statistics
+pub fn netstat(_args: &[&str]) {
+    use crate::drivers::net;
+    use crate::drivers::net::socket;
+    
+    println!("Network Statistics:");
+    println!("===================");
+    println!();
+    
+    // Interface stats
+    for name in net::list_interfaces() {
+        if let Some(iface) = net::get_interface(&name) {
+            println!("{}: RX {} pkts / {} bytes, TX {} pkts / {} bytes",
+                name, iface.rx_packets, iface.rx_bytes, 
+                iface.tx_packets, iface.tx_bytes);
+        }
+    }
+    
+    // VirtIO-Net stats
+    if let Some(stats) = crate::drivers::virtio::net::get_stats() {
+        println!();
+        println!("VirtIO-Net: RX {} pkts / {} bytes, TX {} pkts / {} bytes",
+            stats.0, stats.2, stats.1, stats.3);
+    }
+    
+    // Socket info
+    let sockets = socket::list_sockets();
+    println!();
+    println!("Active sockets: {}", sockets.len());
+    for fd in sockets {
+        if let Some((domain, sock_type, state)) = socket::get_socket(fd) {
+            println!("  fd={}: {:?} {:?} {:?}", fd, domain, sock_type, state);
+        }
+    }
+}
+
+// ============================================================================
+// Device Commands
+// ============================================================================
+
+/// List all devices
+pub fn devices(_args: &[&str]) {
+    use crate::drivers::device::DEVICE_MANAGER;
+    
+    println!("Device Tree:");
+    println!("============");
+    println!();
+    
+    DEVICE_MANAGER.lock().print_tree();
+}
+
+/// List PCI devices
+pub fn lspci(_args: &[&str]) {
+    println!("PCI Devices:");
+    println!("============");
+    println!();
+    
+    // PCI enumeration not yet implemented
+    println!("(PCI enumeration not yet implemented)");
+    println!();
+    println!("On QEMU virt machine, devices are VirtIO-MMIO based.");
+    println!("Use 'devices' command to see the device tree.");
+}
+
+/// List USB devices
+pub fn lsusb(_args: &[&str]) {
+    println!("USB Devices:");
+    println!("============");
+    println!();
+    
+    // USB enumeration not yet implemented
+    println!("(USB enumeration not yet implemented)");
+    println!();
+    println!("USB support requires xHCI controller driver.");
 }

@@ -151,3 +151,48 @@ debug-arm: build-arm
 	qemu-system-aarch64 -machine virt -cpu cortex-a72 -m 512M \
 		-nographic -d int,guest_errors \
 		-kernel $(ARM_KERNEL)
+
+# Run AArch64 with networking enabled
+# SAFETY: Uses QEMU user-mode networking, isolated from host network
+run-arm-net: build-arm
+	@echo "Running DebOS kernel in QEMU (AArch64) with networking..."
+	@echo "SAFETY: Using QEMU user-mode networking (slirp), isolated from host"
+	@echo "Guest IP: 10.0.2.15, Gateway: 10.0.2.2, DNS: 10.0.2.3"
+	@echo "Press Ctrl+A then X to exit QEMU"
+	$(QEMU_ARM) -kernel $(ARM_KERNEL) \
+		-device virtio-net-device,netdev=net0 \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22
+
+# Run AArch64 with full device support (disk + network + input)
+# SAFETY: All devices are virtual, host storage/network protected
+run-arm-full: build-arm test_disk.img
+	@echo "Running DebOS kernel in QEMU (AArch64) with full device support..."
+	@echo "SAFETY: All virtual devices, host system protected"
+	@echo "  - VirtIO Block: test_disk.img"
+	@echo "  - VirtIO Net: user-mode networking (10.0.2.15)"
+	@echo "  - VirtIO Input: keyboard and mouse"
+	@echo "  - VirtIO GPU: virtual display (framebuffer)"
+	@echo "Press Ctrl+A then X to exit QEMU"
+	$(QEMU_ARM) -kernel $(ARM_KERNEL) \
+		-drive file=test_disk.img,format=raw,if=none,id=hd0 \
+		-device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0 \
+		-device virtio-net-device,netdev=net0 \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22 \
+		-device virtio-keyboard-device \
+		-device virtio-mouse-device
+
+# Run x86_64 with networking
+run-x86-net: build-x86
+	@echo "Running DebOS kernel in QEMU (x86_64) with networking..."
+	$(QEMU_X86) -kernel $(X86_KERNEL) \
+		-device virtio-net-pci,netdev=net0 \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22
+
+# Run x86_64 with full device support
+run-x86-full: build-x86 test_disk.img
+	@echo "Running DebOS kernel in QEMU (x86_64) with full device support..."
+	$(QEMU_X86) -kernel $(X86_KERNEL) \
+		-drive file=test_disk.img,format=raw,if=none,id=hd0 \
+		-device virtio-blk-pci,drive=hd0 \
+		-device virtio-net-pci,netdev=net0 \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22
