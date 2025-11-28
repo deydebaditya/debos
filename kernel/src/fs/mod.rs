@@ -6,6 +6,7 @@
 pub mod path;
 pub mod ramfs;
 pub mod vfs;
+pub mod fat32;
 
 use alloc::string::String;
 use alloc::vec::Vec;

@@ -25,6 +25,7 @@ pub mod scheduler;
 pub mod ipc;
 pub mod syscall;
 pub mod capability;
+pub mod drivers;
 pub mod fs;
 pub mod shell;
 
@@ -42,6 +43,9 @@ pub fn kernel_init() -> ! {
     println!("[..] Initializing syscall interface...");
     syscall::init();
     println!("[OK] Syscall interface initialized");
+    
+    println!("[..] Initializing drivers...");
+    drivers::init();
     
     println!("[..] Initializing filesystem...");
     fs::init();

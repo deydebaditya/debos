@@ -39,6 +39,13 @@ pub fn help(_args: &[&str]) {
     println!("  write <f> <t>  - Write text to file");
     println!("  stat <path>    - Show file/dir info");
     println!();
+    println!("Block Device Commands:");
+    println!("  disk           - Show block device info");
+    println!("  blkread <sec>  - Read a sector from disk");
+    println!("  mount          - Mount FAT32 filesystem");
+    println!("  fatls [path]   - List FAT32 directory");
+    println!("  fatcat <file>  - Read FAT32 file");
+    println!();
     println!("Other:");
     println!("  echo <text>    - Echo text to console");
     println!();
@@ -163,6 +170,197 @@ pub fn reboot(_args: &[&str]) {
     #[cfg(target_arch = "aarch64")]
     {
         println!("(Reboot not implemented on AArch64 - please restart QEMU)");
+    }
+}
+
+// ============================================================================
+// Block Device Commands
+// ============================================================================
+
+/// Show block device information
+pub fn disk(_args: &[&str]) {
+    println!("Block Device Information");
+    println!("========================");
+    println!();
+    
+    // Get VirtIO device count
+    let virtio_count = crate::drivers::virtio::device_count();
+    println!("  VirtIO devices discovered: {}", virtio_count);
+    println!();
+    
+    // Get block device info
+    if let Some((capacity, block_size, read_only)) = crate::drivers::block::get_device_info() {
+        println!("  Block Device:");
+        println!("    Capacity:   {} sectors ({} MB)",
+            capacity, 
+            capacity * block_size as u64 / 1024 / 1024);
+        println!("    Block size: {} bytes", block_size);
+        println!("    Read-only:  {}", if read_only { "Yes" } else { "No" });
+    } else {
+        println!("  No block device available");
+        println!();
+        println!("  Tip: Start QEMU with a disk:");
+        println!("    -drive file=disk.img,format=raw,if=none,id=hd0");
+        println!("    -device virtio-blk-device,drive=hd0");
+    }
+    println!();
+}
+
+/// Read a sector from the block device
+pub fn blkread(args: &[&str]) {
+    if args.is_empty() {
+        println!("Usage: blkread <sector>");
+        return;
+    }
+    
+    let sector: u64 = match args[0].parse() {
+        Ok(s) => s,
+        Err(_) => {
+            println!("blkread: invalid sector number");
+            return;
+        }
+    };
+    
+    let mut buf = [0u8; 512];
+    match crate::drivers::virtio::block::read_sector(sector, &mut buf) {
+        Ok(_) => {
+            println!("Sector {} contents:", sector);
+            println!();
+            
+            // Hexdump the first 256 bytes
+            for row in 0..16 {
+                let offset = row * 16;
+                print!("  {:04x}:  ", offset);
+                
+                // Hex
+                for col in 0..16 {
+                    print!("{:02x} ", buf[offset + col]);
+                    if col == 7 {
+                        print!(" ");
+                    }
+                }
+                
+                // ASCII
+                print!(" |");
+                for col in 0..16 {
+                    let ch = buf[offset + col];
+                    if ch >= 0x20 && ch < 0x7f {
+                        print!("{}", ch as char);
+                    } else {
+                        print!(".");
+                    }
+                }
+                println!("|");
+            }
+            println!();
+        }
+        Err(e) => {
+            println!("blkread: failed to read sector {}: {:?}", sector, e);
+        }
+    }
+}
+
+/// Mount FAT32 filesystem from block device
+pub fn mount(_args: &[&str]) {
+    use crate::fs::fat32;
+    
+    if fat32::is_mounted() {
+        println!("FAT32 filesystem is already mounted");
+        return;
+    }
+    
+    if crate::drivers::block::get_device_info().is_none() {
+        println!("mount: no block device available");
+        return;
+    }
+    
+    match fat32::mount() {
+        Ok(_) => println!("FAT32 filesystem mounted successfully"),
+        Err(e) => println!("mount: failed to mount FAT32: {:?}", e),
+    }
+}
+
+/// List FAT32 directory
+pub fn fatls(args: &[&str]) {
+    use crate::fs::fat32;
+    
+    if !fat32::is_mounted() {
+        println!("fatls: FAT32 not mounted (use 'mount' first)");
+        return;
+    }
+    
+    let path = args.first().copied().unwrap_or("/");
+    
+    match fat32::ls(path) {
+        Ok(entries) => {
+            if entries.is_empty() {
+                println!("(empty directory)");
+                return;
+            }
+            
+            println!("Directory of {}", path);
+            println!();
+            
+            for (name, is_dir, size) in entries {
+                if is_dir {
+                    println!("  <DIR>        {}", name);
+                } else {
+                    println!("  {:>10}  {}", size, name);
+                }
+            }
+            println!();
+        }
+        Err(e) => {
+            println!("fatls: {:?}", e);
+        }
+    }
+}
+
+/// Read FAT32 file
+pub fn fatcat(args: &[&str]) {
+    use crate::fs::fat32;
+    
+    if !fat32::is_mounted() {
+        println!("fatcat: FAT32 not mounted (use 'mount' first)");
+        return;
+    }
+    
+    if args.is_empty() {
+        println!("Usage: fatcat <file>");
+        return;
+    }
+    
+    let path = args[0];
+    
+    match fat32::read_file(path) {
+        Ok(data) => {
+            // Try to print as text
+            if let Ok(text) = core::str::from_utf8(&data) {
+                print!("{}", text);
+                if !text.ends_with('\n') {
+                    println!();
+                }
+            } else {
+                // Binary file, show hexdump
+                println!("(Binary file, {} bytes)", data.len());
+                let to_show = data.len().min(256);
+                for row in 0..(to_show + 15) / 16 {
+                    let offset = row * 16;
+                    print!("  {:04x}:  ", offset);
+                    for col in 0..16 {
+                        if offset + col < to_show {
+                            print!("{:02x} ", data[offset + col]);
+                        } else {
+                            print!("   ");
+                        }
+                    }
+                    println!();
+                }
+            }
+        }
+        Err(e) => {
+            println!("fatcat: {:?}", e);
+        }
     }
 }
 

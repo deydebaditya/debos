@@ -83,6 +83,15 @@ run-arm: build-arm
 	@echo "Press Ctrl+A then X to exit QEMU"
 	$(QEMU_ARM) -kernel $(ARM_KERNEL)
 
+# Run AArch64 with VirtIO disk attached
+run-arm-disk: build-arm
+	@echo "Running DebOS kernel in QEMU (AArch64) with disk..."
+	@echo "Press Ctrl+A then X to exit QEMU"
+	@[ -f test_disk.img ] || dd if=/dev/zero of=test_disk.img bs=1M count=8 2>/dev/null
+	$(QEMU_ARM) -kernel $(ARM_KERNEL) \
+		-drive file=test_disk.img,format=raw,if=none,id=hd0 \
+		-device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0
+
 # Check both architectures
 check:
 	@echo "Checking x86_64..."

@@ -196,6 +196,16 @@ DebOS is a **POSIX-compatible microkernel** system written in Rust with AI integ
 **Goal:** PCI Enumeration, VirtIO-Block, VirtIO-Net  
 **Test Criteria:** Mount an ext4 disk image and read a file. Ping `8.8.8.8`.
 
+### Phase 2 Sub-phases
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 2A | In-kernel RamFS + shell commands | ✅ Complete |
+| 2B | VirtIO subsystem + Block driver | ✅ Complete |
+| 2C | FAT32 filesystem support | ✅ Complete |
+| 2D | VFS Server migration (userspace) | ⏳ Pending |
+| 2E | Networking stack | ⏳ Pending |
+
 ### 2.1 Device Manager (DevMan)
 
 #### 2.1.1 Bus Enumeration
@@ -212,6 +222,26 @@ DebOS is a **POSIX-compatible microkernel** system written in Rust with AI integ
 - [ ] MMIO region capability generation
 - [ ] IRQ line capability assignment
 - [ ] DMA buffer management
+
+### 2.1B VirtIO Subsystem (Kernel-mode, Phase 2B) ✅ COMPLETE
+
+#### 2.1B.1 VirtIO Core
+- [x] VirtQueue implementation (split virtqueues)
+- [x] Descriptor table management
+- [x] Available/Used ring handling
+- [x] Memory barriers and cache coherency
+- [x] Device status negotiation
+
+#### 2.1B.2 VirtIO MMIO Transport
+- [x] Device discovery via MMIO (for QEMU virt machine)
+- [x] Register interface implementation (legacy v1 + modern v2)
+- [x] Interrupt handling
+
+#### 2.1B.3 VirtIO-Block Driver
+- [x] Block device capability negotiation
+- [x] Read/write request handling
+- [x] Sector-based I/O interface
+- [ ] Async I/O with completion callbacks (future enhancement)
 
 ### 2.2 Storage Stack (VFS Server)
 
@@ -635,9 +665,29 @@ qemu-system-x86_64 \
 
 ### Priority 2: Core Servers (Required for Functionality)
 
+#### Phase 2A: In-Kernel Filesystem ✅ COMPLETE
+- [x] **FS-001**: RamFS inode structure and operations
+- [x] **FS-002**: VFS layer abstraction
+- [x] **FS-003**: Path resolution utilities
+- [x] **FS-004**: Shell commands (ls, cd, mkdir, rm, cat, etc.)
+
+#### Phase 2B: VirtIO & Block Devices ✅ COMPLETE
+- [x] **VIO-001**: VirtQueue core implementation
+- [x] **VIO-002**: VirtIO MMIO transport (legacy v1 + modern v2)
+- [x] **VIO-003**: VirtIO-Block driver
+- [x] **VIO-004**: Block device abstraction layer
+
+#### Phase 2C: FAT32 Filesystem ✅ COMPLETE
+- [x] **FAT-001**: FAT32 boot sector parsing (BPB)
+- [x] **FAT-002**: FAT table reading (cluster chains)
+- [x] **FAT-003**: Directory entry parsing (8.3 filenames)
+- [x] **FAT-004**: File read operations
+- [ ] **FAT-005**: File write operations (future enhancement)
+
+#### Phase 2D: Userspace Servers
 - [ ] **SRV-001**: VFS Server skeleton with IPC listener
 - [ ] **SRV-002**: VFS protocol implementation
-- [ ] **SRV-003**: FAT32 filesystem driver
+- [ ] **SRV-003**: Server-based FAT32 driver
 - [ ] **SRV-004**: ext4 filesystem driver
 - [ ] **SRV-005**: NetServer skeleton
 - [ ] **SRV-006**: TCP/IP stack (lwIP port or custom)
@@ -646,7 +696,7 @@ qemu-system-x86_64 \
 
 ### Priority 3: Drivers (Hardware Support)
 
-- [ ] **DRV-001**: VirtIO-Block driver
+- [x] **DRV-001**: VirtIO-Block driver
 - [ ] **DRV-002**: VirtIO-Net driver
 - [ ] **DRV-003**: NVMe driver (stretch)
 - [ ] **DRV-004**: e1000 driver (stretch)

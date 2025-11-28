@@ -149,6 +149,13 @@ impl Shell {
             "uptime" => commands::uptime(args),
             "reboot" => commands::reboot(args),
             
+            // Block device commands
+            "disk" => commands::disk(args),
+            "blkread" => commands::blkread(args),
+            "mount" => commands::mount(args),
+            "fatls" => commands::fatls(args),
+            "fatcat" => commands::fatcat(args),
+            
             // Filesystem commands
             "pwd" => commands::pwd(args),
             "ls" | "dir" => commands::ls(args),
