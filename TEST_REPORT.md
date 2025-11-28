@@ -506,11 +506,20 @@ debos> help
 3. **Framebuffer** - VirtIO-GPU + text console
 4. **ext4 Filesystem** - Read support with extents
 
+### What's Now Complete ✅
+
+1. **VFS Server** - Userspace VFS server with IPC protocol complete
+   - Full protocol definition (VfsRequestHeader, VfsResponseHeader)
+   - All filesystem operations (open, read, write, stat, mkdir, etc.)
+   - VFS Client kernel bridge with fallback to in-kernel RamFS
+   - libdebos filesystem API for userspace applications
+
 ### What's Not Implemented ❌
 
-1. **Userspace Servers** - Future phase (VFS, NetServer)
-2. **ext4 Write Support** - Read-only currently
-3. **USB Actual Transfers** - Framework ready, transfers TODO
+1. **VFS Server IPC Integration** - Server ready, IPC routing pending kernel loading
+2. **NetServer Userspace** - Network stack in-kernel only for now
+3. **ext4 Write Support** - Read-only currently
+4. **USB Actual Transfers** - Framework ready, transfers TODO
 
 ---
 

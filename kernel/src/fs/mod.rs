@@ -1,7 +1,31 @@
 //! DebOS Filesystem Module
 //!
-//! Provides in-kernel filesystem support for early boot and shell operations.
-//! This is a temporary solution until the full VFS server is implemented.
+//! Provides filesystem support for DebOS with a hybrid architecture:
+//!
+//! - **Early Boot**: In-kernel RamFS for essential operations
+//! - **Normal Operation**: VFS Server in userspace via IPC
+//!
+//! ## VFS Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────┐
+//! │                    Applications / Shell                          │
+//! │                    fs::open(), fs::read(), etc.                  │
+//! └────────────────────────────┬────────────────────────────────────┘
+//!                              │
+//!                              ▼
+//! ┌─────────────────────────────────────────────────────────────────┐
+//! │                     VFS Client (vfs_client.rs)                   │
+//! │  ┌─────────────────┐              ┌─────────────────────────┐   │
+//! │  │ VFS Server Ready?│──No────────▶│   In-kernel VFS/RamFS   │   │
+//! │  └────────┬────────┘              └─────────────────────────┘   │
+//! │           │Yes                                                   │
+//! │           ▼                                                      │
+//! │  ┌─────────────────────────────────────────────────────────┐    │
+//! │  │            IPC to VFS Server (userspace)                 │    │
+//! │  └─────────────────────────────────────────────────────────┘    │
+//! └─────────────────────────────────────────────────────────────────┘
+//! ```
 
 pub mod path;
 pub mod ramfs;
@@ -9,6 +33,8 @@ pub mod vfs;
 pub mod fat32;
 pub mod ext4;
 pub mod permissions;
+pub mod vfs_protocol;
+pub mod vfs_client;
 
 use alloc::string::String;
 use alloc::vec::Vec;

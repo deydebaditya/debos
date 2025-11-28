@@ -975,7 +975,7 @@ qemu-system-x86_64 \
 - [x] **NET-009**: Socket API (socket, bind, listen, connect, send, recv)
 
 #### Phase 2D-TODO: Remaining Items
-- [ ] **SRV-001**: VFS Server migration to userspace
+- [x] **SRV-001**: VFS Server migration to userspace
 - [x] **SRV-002**: ext4 filesystem driver
 - [x] **USB-001**: xHCI controller driver
 - [x] **USB-002**: USB device enumeration

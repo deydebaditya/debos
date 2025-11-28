@@ -6,3 +6,7 @@ description = "DebOS Virtual Filesystem Server"
 
 [dependencies]
 libdebos = { path = "../../libdebos" }
+
+# Required for no_std allocator
+[features]
+default = []
