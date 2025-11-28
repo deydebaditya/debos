@@ -943,15 +943,47 @@ qemu-system-x86_64 \
 - [x] **UTIL-003**: grep command (pattern matching)
 - [x] **UTIL-004**: vim-like text editor (edit command)
 
-#### Phase 2D: Userspace Servers
-- [ ] **SRV-001**: VFS Server skeleton with IPC listener
-- [ ] **SRV-002**: VFS protocol implementation
-- [ ] **SRV-003**: Server-based FAT32 driver
-- [ ] **SRV-004**: ext4 filesystem driver
-- [ ] **SRV-005**: NetServer skeleton
-- [ ] **SRV-006**: TCP/IP stack (lwIP port or custom)
-- [ ] **SRV-007**: Device Manager with PCI enumeration
-- [ ] **SRV-008**: Driver loading mechanism
+#### Phase 2D: Device Manager, Input & Networking ✅ COMPLETE
+
+**Documentation:** [docs/developer/DEVICE_SUBSYSTEM.md](docs/developer/DEVICE_SUBSYSTEM.md)
+
+##### Device Manager ✅
+- [x] **DEV-001**: Device struct with id, class, bus, resources
+- [x] **DEV-002**: Device tree with parent/child relationships
+- [x] **DEV-003**: DeviceClass enum (Block, Keyboard, Mouse, Network, etc.)
+- [x] **DEV-004**: BusType enum (Root, PCI, USB, Platform, VirtIO)
+- [x] **DEV-005**: DeviceResources (MMIO, IRQ, DMA, I/O ports)
+- [x] **DEV-006**: Driver registration and binding
+
+##### Input Subsystem ✅
+- [x] **INPUT-001**: InputEvent model (evdev-compatible)
+- [x] **INPUT-002**: KeyCode module (USB HID compatible)
+- [x] **INPUT-003**: Keyboard driver with modifier tracking
+- [x] **INPUT-004**: Mouse driver with button/motion tracking
+- [x] **INPUT-005**: PS/2 scancode translation
+- [x] **INPUT-006**: Global input event queue
+
+##### Networking Stack ✅
+- [x] **NET-001**: MacAddress and Ipv4Address types
+- [x] **NET-002**: NetworkInterface abstraction
+- [x] **NET-003**: Ethernet frame handling
+- [x] **NET-004**: ARP protocol with cache
+- [x] **NET-005**: IPv4 protocol
+- [x] **NET-006**: ICMP protocol (ping)
+- [x] **NET-007**: UDP protocol
+- [x] **NET-008**: TCP protocol (full state machine)
+- [x] **NET-009**: Socket API (socket, bind, listen, connect, send, recv)
+
+#### Phase 2D-TODO: Remaining Items
+- [ ] **SRV-001**: VFS Server migration to userspace
+- [ ] **SRV-002**: ext4 filesystem driver
+- [ ] **USB-001**: xHCI controller driver
+- [ ] **USB-002**: USB device enumeration
+- [ ] **USB-003**: USB HID driver
+- [ ] **USB-004**: USB Mass Storage driver
+- [ ] **DISP-001**: Framebuffer abstraction
+- [ ] **DISP-002**: VirtIO-GPU driver
+- [ ] **DISP-003**: Text console over framebuffer
 
 #### Phase 2F: Ultra-Fast I/O (100x Improvement) ⏳ PENDING
 
