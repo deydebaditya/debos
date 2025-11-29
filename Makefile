@@ -215,22 +215,7 @@ iso-x86: build-x86
 	@echo "Note: x86_64 kernel uses bootloader_api - full ISO boot support is in development"
 	@mkdir -p iso/boot/grub
 	@cp $(X86_KERNEL) iso/boot/debos-kernel
-	@cat > iso/boot/grub/grub.cfg << 'GRUBEOF' || true
-set timeout=5
-set default=0
-
-menuentry "DebOS" {
-    # Try multiboot2 first (if kernel supports it)
-    multiboot2 /boot/debos-kernel
-    boot
-}
-
-menuentry "DebOS (legacy)" {
-    # Fallback to multiboot (legacy)
-    multiboot /boot/debos-kernel
-    boot
-}
-GRUBEOF
+	@printf 'set timeout=5\nset default=0\n\nmenuentry "DebOS" {\n    multiboot2 /boot/debos-kernel\n    boot\n}\n\nmenuentry "DebOS (legacy)" {\n    multiboot /boot/debos-kernel\n    boot\n}\n' > iso/boot/grub/grub.cfg
 	@if command -v grub-mkrescue >/dev/null 2>&1; then \
 		echo "Using grub-mkrescue..."; \
 		grub-mkrescue -o debos.iso iso 2>/dev/null || \

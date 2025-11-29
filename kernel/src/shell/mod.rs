@@ -13,9 +13,6 @@ use crate::println;
 /// Maximum command line length
 const MAX_LINE_LENGTH: usize = 256;
 
-/// Shell prompt
-const PROMPT: &str = "debos> ";
-
 /// The kernel shell
 pub struct Shell {
     /// Command history
@@ -24,15 +21,21 @@ pub struct Shell {
     input_buffer: String,
     /// Whether the shell is running
     running: bool,
+    /// Current working directory (cached for prompt display)
+    current_dir: String,
 }
 
 impl Shell {
     /// Create a new shell instance
     pub fn new() -> Self {
+        // Get current working directory
+        let current_dir = crate::fs::getcwd().unwrap_or_else(|_| String::from("/"));
+        
         Shell {
             history: Vec::new(),
             input_buffer: String::with_capacity(MAX_LINE_LENGTH),
             running: true,
+            current_dir,
         }
     }
     
@@ -71,8 +74,9 @@ impl Shell {
     }
     
     /// Print the shell prompt
-    fn print_prompt(&self) {
-        crate::print!("{}", PROMPT);
+    fn print_prompt(&mut self) {
+        // Use cached current directory - it's updated when cd is called
+        crate::print!("debos ({})> ", self.current_dir);
     }
     
     /// Read a line of input from serial
@@ -117,11 +121,12 @@ impl Shell {
                     // Ignore other control characters
                     _ => {}
                 }
-            }
-            
-            // Small delay to prevent busy-waiting
-            for _ in 0..1000 {
-                core::hint::spin_loop();
+            } else {
+                // No input available - small delay to prevent excessive CPU usage
+                // Timer interrupts will handle preemption automatically
+                for _ in 0..1000 {
+                    core::hint::spin_loop();
+                }
             }
         }
     }
@@ -167,7 +172,14 @@ impl Shell {
             // Filesystem commands
             "pwd" => commands::pwd(args),
             "ls" | "dir" => commands::ls(args),
-            "cd" => commands::cd(args),
+            "cd" => {
+                commands::cd(args);
+                // Update current directory after cd - use cached value if getcwd fails
+                if let Ok(dir) = crate::fs::getcwd() {
+                    self.current_dir = dir;
+                }
+                // If getcwd fails, keep the cached value
+            },
             "mkdir" => commands::mkdir(args),
             "rmdir" => commands::rmdir(args),
             "touch" => commands::touch(args),

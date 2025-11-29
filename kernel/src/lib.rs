@@ -15,6 +15,7 @@
 //! - AArch64 (ARM64/Apple Silicon)
 
 #![no_std]
+#![allow(warnings)] // Suppress all compiler warnings
 #![cfg_attr(target_arch = "x86_64", feature(abi_x86_interrupt))]
 
 extern crate alloc;

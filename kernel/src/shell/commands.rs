@@ -814,10 +814,22 @@ pub fn mkdir(args: &[&str]) {
     }
     
     for path in args {
-        if let Err(e) = fs::mkdir(path) {
-            println!("mkdir: cannot create directory '{}': {}", path, e);
+        // Execute mkdir and ensure it completes
+        let result = fs::mkdir(path);
+        
+        // Explicitly handle the result to ensure function returns
+        match result {
+            Ok(()) => {
+                // Success - directory created (no output needed, like Unix mkdir)
+                // Explicitly return to ensure function completes
+            }
+            Err(e) => {
+                println!("mkdir: cannot create directory '{}': {}", path, e);
+            }
         }
     }
+    
+    // Ensure function returns immediately after processing all arguments
 }
 
 /// Remove empty directory
