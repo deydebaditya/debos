@@ -5,6 +5,7 @@
 
 mod commands;
 mod input;
+mod sdk;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -28,7 +29,12 @@ pub struct Shell {
 impl Shell {
     /// Create a new shell instance
     pub fn new() -> Self {
+        // Initialize SDK utilities (safe credential access)
+        // Do this first, but don't block if scheduler isn't ready
+        sdk::init();
+        
         // Get current working directory
+        // Use fallback if getcwd fails (shouldn't happen, but be safe)
         let current_dir = crate::fs::getcwd().unwrap_or_else(|_| String::from("/"));
         
         Shell {
@@ -47,15 +53,30 @@ impl Shell {
             self.print_prompt();
             
             // Read a line of input
-            if let Some(line) = self.read_line() {
-                let trimmed = line.trim();
-                
-                if !trimmed.is_empty() {
-                    // Add to history
-                    self.history.push(line.clone());
+            match self.read_line() {
+                Some(line) => {
+                    let trimmed = line.trim();
                     
-                    // Execute the command
-                    self.execute(trimmed);
+                    if !trimmed.is_empty() {
+                        // Add to history
+                        self.history.push(line.clone());
+                        
+                        // Execute the command
+                        self.execute(trimmed);
+                        
+                        // Ensure we end on a new line after command execution
+                        // This is critical for commands that don't output anything (mkdir, touch, etc.)
+                        crate::print!("\n");
+                    } else {
+                        // Empty line - just print a newline and continue
+                        crate::print!("\n");
+                    }
+                }
+                None => {
+                    // Ctrl+C or Ctrl+D was pressed
+                    // For Ctrl+C, continue loop to show new prompt
+                    // For Ctrl+D, self.running will be false and we'll exit
+                    continue;
                 }
             }
         }
@@ -76,6 +97,8 @@ impl Shell {
     /// Print the shell prompt
     fn print_prompt(&mut self) {
         // Use cached current directory - it's updated when cd is called
+        // Note: We rely on the newline added after command execution to ensure
+        // we're on a fresh line before printing the prompt
         crate::print!("debos ({})> ", self.current_dir);
     }
     
@@ -99,11 +122,14 @@ impl Shell {
                             crate::print!("\x08 \x08");
                         }
                     }
-                    // Ctrl+C - cancel line
+                    // Ctrl+C - cancel line and return to prompt
                     0x03 => {
+                        // Print Ctrl+C indicator on a new line
                         println!("^C");
                         self.input_buffer.clear();
-                        return Some(String::new());
+                        // Return None to skip command execution
+                        // The loop will continue and print a fresh prompt
+                        return None;
                     }
                     // Ctrl+D - exit shell
                     0x04 => {
@@ -122,9 +148,12 @@ impl Shell {
                     _ => {}
                 }
             } else {
-                // No input available - small delay to prevent excessive CPU usage
-                // Timer interrupts will handle preemption automatically
-                for _ in 0..1000 {
+                // No input available - yield to allow other threads and timer interrupts
+                crate::scheduler::yield_now();
+                
+                // Very small delay to prevent tight loop while still polling frequently
+                // This ensures we check UART often enough to catch input quickly
+                for _ in 0..10 {
                     core::hint::spin_loop();
                 }
             }
@@ -232,6 +261,16 @@ pub fn start() {
 
 /// Entry point for the shell thread
 pub extern "C" fn shell_thread_entry() {
+    // Debug: Confirm shell thread is running
+    crate::println!("[SHELL] Thread entry point reached");
+    
+    // Ensure interrupts are enabled (safety check)
+    #[cfg(target_arch = "aarch64")]
+    {
+        crate::arch::enable_interrupts();
+        crate::println!("[SHELL] Interrupts enabled, starting shell...");
+    }
+    
     start();
     crate::scheduler::exit_thread(0);
 }

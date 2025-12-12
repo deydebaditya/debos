@@ -96,9 +96,12 @@ impl Scheduler {
             } else {
                 // No current thread, just start the next one
                 next.state = ThreadState::Running;
+                // Get context pointer before moving thread to current
                 let new_ctx = &next.context as *const ArchContext;
                 self.current = Some(next);
                 
+                // Note: context_switch_first never returns - it switches to the new thread
+                // The lock will be released when this function returns (which never happens)
                 unsafe {
                     context_switch_first(new_ctx);
                 }
@@ -108,9 +111,11 @@ impl Scheduler {
     
     /// Yield the current thread
     fn yield_current(&mut self) {
+        // If there are other threads ready, switch to them
         if self.current.is_some() && !self.ready_queue.is_empty() {
             self.schedule();
         }
+        // If no other threads, just return - timer interrupts will handle preemption
     }
     
     /// Exit the current thread
@@ -265,18 +270,39 @@ pub fn current_tid() -> Option<ThreadId> {
     SCHEDULER.lock().current.as_ref().map(|t| t.id)
 }
 
+/// Start the scheduler (called manually to start first thread)
+/// This releases the lock before context switching to avoid deadlock
+pub fn start_scheduler() {
+    let mut scheduler = SCHEDULER.lock();
+    if !scheduler.ready_queue.is_empty() && !SCHEDULER_STARTED.load(Ordering::Relaxed) {
+        SCHEDULER_STARTED.store(true, Ordering::Relaxed);
+        
+        // Get the first thread to run
+        if let Some(mut next) = scheduler.ready_queue.pop() {
+            next.state = ThreadState::Running;
+            let new_ctx = &next.context as *const ArchContext;
+            
+            // Set as current thread
+            scheduler.current = Some(next);
+            
+            // Release lock before context switch to avoid deadlock
+            drop(scheduler);
+            
+            // Switch to first thread - this never returns
+            unsafe {
+                context_switch_first(new_ctx);
+            }
+        }
+    }
+}
+
 /// Timer interrupt handler - called from IDT/GIC
 pub fn on_timer_tick() {
     let _ticks = TICKS.fetch_add(1, Ordering::Relaxed);
     
     // Start scheduler on first tick if we have threads
     if !SCHEDULER_STARTED.load(Ordering::Relaxed) {
-        let scheduler = SCHEDULER.lock();
-        if !scheduler.ready_queue.is_empty() {
-            drop(scheduler);
-            SCHEDULER_STARTED.store(true, Ordering::Relaxed);
-            SCHEDULER.lock().schedule();
-        }
+        start_scheduler();
     } else {
         // Regular tick - check for preemption
         SCHEDULER.lock().on_tick();

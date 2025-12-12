@@ -25,6 +25,7 @@ pub fn read_char() -> Option<u8> {
 pub fn read_char() -> Option<u8> {
     use crate::arch::aarch64::uart::UART;
     
+    // Read from UART (non-blocking)
     UART.lock().read_byte()
 }
 

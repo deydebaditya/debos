@@ -50,8 +50,8 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
     &mut *page_table_ptr
 }
 
-/// Map a virtual page to a physical frame
-pub fn map_page(page: Page<Size4KiB>, frame: PhysFrame<Size4KiB>, flags: PageTableFlags) -> Result<(), &'static str> {
+/// Map a virtual page to a physical frame (internal, takes Page/PhysFrame types)
+pub fn map_page_internal(page: Page<Size4KiB>, frame: PhysFrame<Size4KiB>, flags: PageTableFlags) -> Result<(), &'static str> {
     unsafe {
         let mapper = MAPPER.as_mut().ok_or("Paging not initialized")?;
         let frame_allocator = FRAME_ALLOCATOR.as_mut().ok_or("Frame allocator not initialized")?;
@@ -178,25 +178,16 @@ pub fn map_page_simple(virt_addr: usize, phys_addr: usize, flags: PageFlags) -> 
     let page = Page::<Size4KiB>::containing_address(VirtAddr::new(virt_addr as u64));
     let frame = PhysFrame::containing_address(PhysAddr::new(phys_addr as u64));
     
-    map_page(page, frame, flags)
+    map_page_internal(page, frame, flags)
 }
 
-/// Alias for map_page_simple for syscall compatibility
+/// Map a virtual address to a physical address (public API for syscall handlers)
+/// This is the main entry point that takes usize addresses
 pub fn map_page(virt_addr: usize, phys_addr: usize, flags: PageFlags) -> Result<(), &'static str> {
     let page = Page::<Size4KiB>::containing_address(VirtAddr::new(virt_addr as u64));
     let frame = PhysFrame::containing_address(PhysAddr::new(phys_addr as u64));
     
-    unsafe {
-        let mapper = MAPPER.as_mut().ok_or("Paging not initialized")?;
-        let frame_allocator = FRAME_ALLOCATOR.as_mut().ok_or("Frame allocator not initialized")?;
-        
-        mapper
-            .map_to(page, frame, flags, frame_allocator)
-            .map_err(|_| "Failed to map page")?
-            .flush();
-        
-        Ok(())
-    }
+    map_page_internal(page, frame, flags)
 }
 
 /// Unmap a virtual page

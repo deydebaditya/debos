@@ -62,7 +62,12 @@ impl Uart {
             base.add(regs::IMSC / 4).write_volatile(0);
             
             // Enable UART, TX, RX
+            // CR bits: bit 0 = UARTEN, bit 8 = TXE, bit 9 = RXE
+            // 0x301 = 0b0000_0011_0000_0001 = UARTEN | TXE | RXE
             base.add(regs::CR / 4).write_volatile(0x301);
+            
+            // Ensure RX is enabled by reading status
+            let _ = base.add(regs::FR / 4).read_volatile();
         }
     }
     
@@ -86,13 +91,34 @@ impl Uart {
         unsafe {
             let base = self.base as *mut u32;
             
+            // Read Flag Register to check status
+            let fr = base.add(regs::FR / 4).read_volatile();
+            
             // Check if RX FIFO is empty
-            if (base.add(regs::FR / 4).read_volatile() & flags::RXFE) != 0 {
+            if (fr & flags::RXFE) != 0 {
                 return None;
             }
             
-            // Read the byte
-            Some((base.add(regs::DR / 4).read_volatile() & 0xFF) as u8)
+            // Check for overrun error (bit 3)
+            let has_error = (fr & (1 << 3)) != 0;
+            if has_error {
+                // Clear error by reading data register
+                let _ = base.add(regs::DR / 4).read_volatile();
+                return None;
+            }
+            
+            // Read the byte from data register
+            let data = base.add(regs::DR / 4).read_volatile();
+            Some((data & 0xFF) as u8)
+        }
+    }
+    
+    /// Check if UART has data available (for debugging)
+    pub fn has_data(&mut self) -> bool {
+        unsafe {
+            let base = self.base as *mut u32;
+            let fr = base.add(regs::FR / 4).read_volatile();
+            (fr & flags::RXFE) == 0
         }
     }
 }
