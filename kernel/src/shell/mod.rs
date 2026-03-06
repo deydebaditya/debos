@@ -148,10 +148,12 @@ impl Shell {
                     _ => {}
                 }
             } else {
-                // Yield to scheduler so timer interrupts can fire.
-                // Timer IRQs cause QEMU vCPU exits, letting QEMU's
-                // event loop process stdin and deliver it to the PL011.
-                crate::scheduler::yield_now();
+                // Brief spin to let QEMU process I/O events.
+                // Each spin_loop hint causes a brief yield on the CPU,
+                // and timer interrupts still fire to keep the scheduler alive.
+                for _ in 0..100 {
+                    core::hint::spin_loop();
+                }
             }
         }
     }
