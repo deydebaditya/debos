@@ -23,23 +23,7 @@ pub fn read_char() -> Option<u8> {
 
 #[cfg(target_arch = "aarch64")]
 pub fn read_char() -> Option<u8> {
-    use crate::arch::aarch64::uart::UART;
-    
-    static POLL_COUNT: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-    
-    let count = POLL_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    
-    // Print debug info every ~5 seconds (assuming ~1M polls/sec)
-    if count % 5_000_000 == 0 {
-        // Read FR register directly for debug
-        let fr = unsafe {
-            let base = 0x0900_0000 as *const u32;
-            base.add(0x18 / 4).read_volatile()
-        };
-        crate::println!("\n[UART-DBG] polls={}, FR=0x{:08x}, RXFE={}", count, fr, (fr >> 4) & 1);
-    }
-    
-    UART.lock().read_byte()
+    crate::arch::aarch64::uart::rx_pop()
 }
 
 /// Read a character, blocking until one is available

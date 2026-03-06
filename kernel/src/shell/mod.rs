@@ -148,14 +148,14 @@ impl Shell {
                     _ => {}
                 }
             } else {
-                // No input available - yield to allow other threads and timer interrupts
-                crate::scheduler::yield_now();
+                // No input -- halt CPU until next interrupt (UART RX or timer).
+                // This is critical: WFI lets QEMU process its I/O event loop,
+                // which delivers stdin data to the PL011 and fires the RX IRQ.
+                #[cfg(target_arch = "aarch64")]
+                unsafe { core::arch::asm!("wfi"); }
                 
-                // Very small delay to prevent tight loop while still polling frequently
-                // This ensures we check UART often enough to catch input quickly
-                for _ in 0..10 {
-                    core::hint::spin_loop();
-                }
+                #[cfg(target_arch = "x86_64")]
+                crate::scheduler::yield_now();
             }
         }
     }
