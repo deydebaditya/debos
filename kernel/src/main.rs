@@ -92,8 +92,40 @@ pub extern "C" fn kernel_main_aarch64() -> ! {
     debos_kernel::memory::init_aarch64();
     debos_kernel::println!("[OK] Memory initialized");
     
-    // Continue with common kernel init
-    debos_kernel::kernel_init()
+    // Enable interrupts (timer will start firing)
+    debos_kernel::println!("[..] Enabling interrupts for echo test...");
+    debos_kernel::arch::aarch64::gic::enable_timer();
+    debos_kernel::arch::aarch64::enable_interrupts();
+    debos_kernel::println!("[OK] Interrupts enabled");
+
+    // BARE ECHO TEST with interrupts running
+    debos_kernel::println!("[TEST] Echo test WITH timer interrupts active");
+    debos_kernel::print!("[TEST]> ");
+    unsafe {
+        let base = 0x0900_0000u64 as *mut u32;
+        let mut count: u64 = 0;
+        loop {
+            let fr = core::ptr::read_volatile(base.add(0x18 / 4));
+            if (fr & (1 << 4)) == 0 {
+                let data = core::ptr::read_volatile(base.add(0x00 / 4));
+                let ch = (data & 0xFF) as u8;
+                while (core::ptr::read_volatile(base.add(0x18 / 4)) & (1 << 5)) != 0 {}
+                core::ptr::write_volatile(base.add(0x00 / 4), ch as u32);
+                if ch == b'\r' {
+                    while (core::ptr::read_volatile(base.add(0x18 / 4)) & (1 << 5)) != 0 {}
+                    core::ptr::write_volatile(base.add(0x00 / 4), b'\n' as u32);
+                }
+            }
+            count += 1;
+            if count % 50_000_000 == 0 {
+                let msg = b"\r\n[ALIVE]\r\n[TEST]> ";
+                for &b in msg {
+                    while (core::ptr::read_volatile(base.add(0x18 / 4)) & (1 << 5)) != 0 {}
+                    core::ptr::write_volatile(base.add(0x00 / 4), b as u32);
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
