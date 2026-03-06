@@ -89,11 +89,11 @@ run-x86: build-x86
 	$(QEMU_X86) -kernel $(X86_KERNEL) -chardev stdio,id=serial0,mux=on,signal=off -serial chardev:serial0 -monitor none
 
 # Run AArch64 in QEMU
-# Uses explicit chardev setup for reliable stdin handling (same as x86_64)
+# -nographic connects PL011 serial to stdio automatically
 run-arm: build-arm
 	@echo "Running DebOS kernel in QEMU (AArch64)..."
 	@echo "Press Ctrl+A then X to exit QEMU"
-	$(QEMU_ARM) -kernel $(ARM_KERNEL) -chardev stdio,id=serial0,mux=on,signal=off -serial chardev:serial0 -monitor none
+	$(QEMU_ARM) -kernel $(ARM_KERNEL)
 
 # Run AArch64 with VirtIO disk attached
 # SAFETY: Only uses file-backed disk images, never raw block devices
