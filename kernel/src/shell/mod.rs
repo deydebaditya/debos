@@ -105,52 +105,75 @@ impl Shell {
     /// Read a line of input from serial
     fn read_line(&mut self) -> Option<String> {
         self.input_buffer.clear();
-        
+
+        // Key repeat throttle state:
+        // Held-key repeats are suppressed for INITIAL_DELAY ticks,
+        // then allowed every REPEAT_INTERVAL ticks.
+        // Timer runs at 100 Hz → 1 tick = 10 ms.
+        const INITIAL_DELAY: u64 = 300; // 3 s before auto-repeat starts
+        const REPEAT_INTERVAL: u64 = 50; // 500 ms between repeats
+        let mut last_char: u8 = 0;
+        let mut first_press_tick: u64 = 0;
+        let mut last_accept_tick: u64 = 0;
+
         loop {
             if let Some(c) = input::read_char() {
+                let now = crate::scheduler::ticks();
+
+                // Throttle repeated identical printable characters.
+                // Control chars (enter, backspace, ctrl-*) are never throttled.
+                if c >= 0x20 && c < 0x7F && c == last_char {
+                    let since_first = now.wrapping_sub(first_press_tick);
+                    if since_first < INITIAL_DELAY {
+                        continue; // still in initial hold-off window
+                    }
+                    let since_last = now.wrapping_sub(last_accept_tick);
+                    if since_last < REPEAT_INTERVAL {
+                        continue; // too soon for next repeat
+                    }
+                }
+
+                // Accept this character
+                if c >= 0x20 && c < 0x7F {
+                    if c != last_char {
+                        first_press_tick = now;
+                    }
+                    last_char = c;
+                    last_accept_tick = now;
+                } else {
+                    last_char = 0; // reset on any control char
+                }
+
                 match c {
-                    // Enter - submit line
                     b'\r' | b'\n' => {
                         println!();
                         return Some(self.input_buffer.clone());
                     }
-                    // Backspace
                     0x7F | 0x08 => {
                         if !self.input_buffer.is_empty() {
                             self.input_buffer.pop();
-                            // Erase character on screen
                             crate::print!("\x08 \x08");
                         }
                     }
-                    // Ctrl+C - cancel line and return to prompt
                     0x03 => {
-                        // Print Ctrl+C indicator on a new line
                         println!("^C");
                         self.input_buffer.clear();
-                        // Return None to skip command execution
-                        // The loop will continue and print a fresh prompt
                         return None;
                     }
-                    // Ctrl+D - exit shell
                     0x04 => {
                         println!("^D");
                         self.running = false;
                         return None;
                     }
-                    // Regular printable character
                     c if c >= 0x20 && c < 0x7F => {
                         if self.input_buffer.len() < MAX_LINE_LENGTH {
                             self.input_buffer.push(c as char);
                             crate::print!("{}", c as char);
                         }
                     }
-                    // Ignore other control characters
                     _ => {}
                 }
             } else {
-                // Brief spin to let QEMU process I/O events.
-                // Each spin_loop hint causes a brief yield on the CPU,
-                // and timer interrupts still fire to keep the scheduler alive.
                 for _ in 0..100 {
                     core::hint::spin_loop();
                 }
