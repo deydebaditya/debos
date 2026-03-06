@@ -1,5 +1,7 @@
 # Shell Input Fix Summary
 
+**Status: RESOLVED**
+
 ## Problem Statement
 The shell prompt appears but keyboard input doesn't work - the cursor is stuck and typing doesn't produce any output in QEMU. Characters typed appear in the Mac terminal when QEMU is killed, proving that QEMU is not capturing stdin at all.
 
@@ -67,36 +69,25 @@ The shell prompt appears but keyboard input doesn't work - the cursor is stuck a
 
 ---
 
-## Current Status
+## Current Status — RESOLVED
+
+All issues have been fixed. The shell is fully interactive on both macOS (local)
+and Linux (RPi / Docker sandbox).
 
 ### What Works:
 - ✅ Shell thread starts and runs
-- ✅ Shell prompt appears correctly
+- ✅ Shell prompt appears correctly with dynamic username
+- ✅ Keyboard input works (typing, backspace, Enter)
 - ✅ Output (println!) works correctly
-- ✅ Interrupts are enabled (timer interrupts fire)
+- ✅ Interrupts are enabled (timer + UART interrupts fire correctly)
+- ✅ Timer interrupt re-arms properly (no IRQ storm)
 - ✅ Scheduler works correctly
-- ✅ UART driver correctly polls RX FIFO empty flag
-- ✅ Kernel code is correctly structured
-- ✅ VFS now uses SDK for deadlock-free credential access
+- ✅ UART driver polls RX FIFO and handles interrupts
+- ✅ VFS uses SDK for deadlock-free credential access
 - ✅ SDK uses try_lock() to prevent deadlocks
-
-### What Doesn't Work:
-- ❌ Keyboard input doesn't reach the kernel (QEMU stdin issue on macOS)
-- ❌ UART `read_byte()` never returns `Some(byte)` - always returns `None`
-- ❌ Characters typed appear in Mac terminal when QEMU is killed (proving QEMU isn't capturing them)
-
-### Latest Fixes Applied (Attempt #5):
-1. **QEMU chardev configuration**: Changed to use `-chardev stdio,id=serial0,mux=on,signal=off -serial chardev:serial0` (same as x86_64)
-2. **VFS credential access**: Now uses SDK's `get_owner_ids()` instead of hardcoded `(1000, 1000)`
-3. **SDK try_lock()**: Added `try_current_credentials()` to scheduler that uses `try_lock()` to prevent deadlocks
-
-### Key Observations:
-1. When QEMU is killed, typed characters appear in Mac terminal → QEMU isn't capturing stdin
-2. Debug output shows shell is running and polling UART
-3. No `[DEBUG] read_char: got byte` messages → UART never receives characters
-4. QEMU configuration changes haven't fixed the issue
-5. Raw terminal mode (`stty raw`) doesn't help - QEMU still doesn't read stdin
-6. Even PTY-based approaches don't work
+- ✅ Key repeat throttling (3s hold delay, 500ms repeat)
+- ✅ `shutdown` and `reboot` commands work via PSCI
+- ✅ No double prompts (handles `\r\n` correctly)
 
 ---
 
@@ -142,16 +133,17 @@ The issue is **definitely QEMU configuration** rather than kernel code:
 
 ---
 
-## Next Steps (For Future Investigation)
+## Lessons Learned
 
-1. **Test with Terminal.app instead of iTerm** - Different terminal emulators might behave differently
-2. **Try QEMU 7.2.1** - Some users report version 7.2.1 works better on macOS than 10.1.2
-3. **Check QEMU logs** - Use `-d` flags to see if QEMU is receiving stdin events
-4. **Try explicit PL011 device** - Use `-device pl011,chardev=serial0` instead of relying on virt machine defaults
-5. **Check QEMU issue tracker** - Search for known macOS stdin issues
-6. **Try different QEMU machine types** - Test if issue is specific to virt machine
-7. **Use QEMU monitor** - Connect via `-monitor stdio` to inspect UART device state
-8. **Test on Linux** - Verify if issue is macOS-specific or general QEMU problem
+1. **Bare-metal echo tests** were the key diagnostic — they proved QEMU *does*
+   deliver stdin to PL011, isolating the problem to the kernel's interrupt
+   handling rather than QEMU configuration.
+2. **Binary search through init stages** (placing the echo test progressively
+   deeper into kernel init) efficiently pinpointed the timer interrupt as the
+   culprit.
+3. **Timer re-arming is mandatory** on AArch64 — unlike x86's APIC timer in
+   periodic mode, the ARM generic timer's `ISTATUS` must be cleared by
+   reloading the countdown register.
 
 ---
 
@@ -186,20 +178,34 @@ qemu-system-aarch64 -machine virt -cpu cortex-a72 -m 512M \
 
 ---
 
-## Conclusion
+## Resolution
 
-Despite extensive attempts to fix the input issue, QEMU on macOS (version 10.1.2) is not capturing stdin even when:
-- Terminal is in raw mode
-- QEMU is configured with `-serial stdio`
-- Kernel code is correctly polling the UART
+The input issue was ultimately caused by **three separate bugs** that were fixed
+incrementally:
 
-**Latest fix attempt**: Changed to use explicit chardev configuration (`-chardev stdio,id=serial0,mux=on,signal=off -serial chardev:serial0`) which is the same configuration used by x86_64. This provides better control over stdin forwarding.
+### Bug 1: UART `read_byte()` error check (commit `d640815`)
+The PL011 driver checked `FR[3]` (BUSY bit) instead of `DR[11:8]` (error bits).
+Any byte received while the UART was transmitting (e.g. printing the prompt)
+was silently discarded.
 
-**Kernel-side fixes applied**:
-- VFS now uses SDK for deadlock-free credential access
-- SDK uses `try_lock()` to prevent scheduler deadlocks
-- All commands use SDK functions instead of direct scheduler access
+### Bug 2: QEMU chardev mux conflict (commit `a6c4020`)
+The Makefile used `-chardev stdio,mux=on` alongside `-nographic`. These flags
+conflict — `-nographic` already connects serial to stdio. Removing the explicit
+chardev and mux flags resolved the conflict.
 
-The issue appears to be a QEMU/macOS compatibility problem rather than a kernel bug. The kernel code is functioning correctly - it's just not receiving any data from QEMU's virtual UART device.
+### Bug 3: Timer interrupt storm (commit `6134f77`) — ROOT CAUSE
+The AArch64 timer interrupt handler (`on_timer_tick`) did not reload
+`CNTP_TVAL_EL0` after handling the interrupt. The timer's `ISTATUS` flag
+remained set, causing the IRQ to fire continuously in an infinite loop. This
+starved the shell thread of all CPU time, making input impossible.
 
-**Status**: ⏳ Input issue pending verification - test with new chardev configuration
+**Fix**: Re-arm the timer by writing a new countdown value to `CNTP_TVAL_EL0`
+at the end of the interrupt handler.
+
+### Additional improvements after resolution:
+- Key repeat throttling with gap detection (commits `1c13f94`, `8ead00e`)
+- Dynamic username in prompt (commit `aa90820`)
+- `\r\n` double-prompt fix (commit `8d0d25d`)
+- `shutdown`/`reboot` via PSCI (commit `8d0d25d`)
+
+**Status**: ✅ Fully resolved
