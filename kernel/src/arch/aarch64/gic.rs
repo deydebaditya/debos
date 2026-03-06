@@ -158,6 +158,7 @@ pub fn handle_interrupt() {
         }
         UART_IRQ => {
             drop(gic);
+            crate::println!("[GIC] UART IRQ received!");
             super::uart::handle_rx_interrupt();
             GIC.lock().end_interrupt(irq);
         }

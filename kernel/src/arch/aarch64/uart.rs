@@ -73,6 +73,7 @@ pub fn rx_pop() -> Option<u8> {
 pub fn handle_rx_interrupt() {
     unsafe {
         let base = UART_BASE as *mut u32;
+        let mut count = 0u32;
 
         // Drain all available bytes from the hardware FIFO
         loop {
@@ -82,15 +83,25 @@ pub fn handle_rx_interrupt() {
             }
             let data = base.add(regs::DR / 4).read_volatile();
             if (data & 0xF00) != 0 {
-                // Error -- clear and skip
                 base.add(regs::RSR / 4).write_volatile(0);
                 continue;
             }
             rx_push((data & 0xFF) as u8);
+            count += 1;
         }
 
         // Clear RX + RT interrupt flags
         base.add(regs::ICR / 4).write_volatile(RXIM | RTIM);
+
+        if count > 0 {
+            // Debug: signal that we received characters
+            // Write directly to avoid UART lock (we're in IRQ context)
+            let msg = b"\r\n[RX-IRQ] got chars\r\n";
+            for &b in msg {
+                while (base.add(regs::FR / 4).read_volatile() & flags::TXFF) != 0 {}
+                base.add(regs::DR / 4).write_volatile(b as u32);
+            }
+        }
     }
 }
 
