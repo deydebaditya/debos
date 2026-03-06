@@ -130,11 +130,10 @@ impl Uart {
             base.add(regs::IBRD / 4).write_volatile(13);
             base.add(regs::FBRD / 4).write_volatile(1);
 
-            // 8N1, FIFO enabled
-            base.add(regs::LCR_H / 4).write_volatile(0x70);
-
-            // RX FIFO trigger at 1/8 full (earliest possible interrupt)
-            base.add(regs::IFLS / 4).write_volatile(0x00);
+            // 8N1, FIFO *disabled* (bit 4 = 0).
+            // Without FIFO, the 1-char holding register triggers an RX interrupt
+            // on every received byte -- critical for QEMU compatibility.
+            base.add(regs::LCR_H / 4).write_volatile(0x60);
 
             // Enable RX and RX-timeout interrupts
             base.add(regs::IMSC / 4).write_volatile(RXIM | RTIM);
