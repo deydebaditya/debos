@@ -13,6 +13,16 @@ use super::{OpenFlags, SeekFrom, FsError, FsResult, Stat, DirEntry, InodeType};
 use super::ramfs::RamFs;
 use super::path;
 
+/// Get current user's uid/gid for file ownership
+/// This is called BEFORE acquiring VFS lock to avoid nested locks
+/// Uses the shell SDK which has try_lock() to avoid deadlocks
+fn get_current_owner() -> (u32, u32) {
+    // Use the SDK's deadlock-free credential access
+    // The SDK uses try_lock() on the scheduler, so it won't block
+    // If the scheduler lock is held, it returns cached values
+    crate::shell::sdk::get_owner_ids()
+}
+
 /// Maximum number of open files per process
 const MAX_OPEN_FILES: usize = 256;
 
@@ -53,11 +63,11 @@ pub fn init() {
         cwd: String::from("/"),
     };
     
-    // Create some default directories
-    let _ = state.fs.create_dir("/", "home");
-    let _ = state.fs.create_dir("/", "tmp");
-    let _ = state.fs.create_dir("/", "etc");
-    let _ = state.fs.create_dir("/", "var");
+    // Create some default directories (as root)
+    let _ = state.fs.create_dir("/", "home", 0, 0);
+    let _ = state.fs.create_dir("/", "tmp", 0, 0);
+    let _ = state.fs.create_dir("/", "etc", 0, 0);
+    let _ = state.fs.create_dir("/", "var", 0, 0);
     
     *vfs = Some(state);
 }
@@ -73,6 +83,13 @@ fn resolve_path(vfs: &VfsState, p: &str) -> String {
 
 /// Open a file
 pub fn open(file_path: &str, flags: OpenFlags) -> FsResult<u32> {
+    // Get credentials BEFORE acquiring VFS lock if we might create a file
+    let (uid, gid) = if flags.contains(OpenFlags::CREATE) {
+        get_current_owner()
+    } else {
+        (0, 0) // Won't be used
+    };
+    
     let mut vfs_guard = VFS.lock();
     let vfs = vfs_guard.as_mut().ok_or(FsError::IoError)?;
     
@@ -101,7 +118,7 @@ pub fn open(file_path: &str, flags: OpenFlags) -> FsResult<u32> {
             if filename.is_empty() {
                 return Err(FsError::InvalidPath);
             }
-            vfs.fs.create_file(&parent_path, &filename)?
+            vfs.fs.create_file(&parent_path, &filename, uid, gid)?
         }
         Err(e) => return Err(e),
     };
@@ -220,6 +237,9 @@ pub fn seek(fd: u32, pos: SeekFrom) -> FsResult<u64> {
 
 /// Create a directory
 pub fn mkdir(dir_path: &str) -> FsResult<()> {
+    // Get credentials BEFORE acquiring VFS lock to avoid nested locks
+    let (uid, gid) = get_current_owner();
+    
     let mut vfs_guard = VFS.lock();
     let vfs = vfs_guard.as_mut().ok_or(FsError::IoError)?;
     
@@ -230,7 +250,7 @@ pub fn mkdir(dir_path: &str) -> FsResult<()> {
         return Err(FsError::InvalidPath);
     }
     
-    vfs.fs.create_dir(&parent_path, &dirname)?;
+    vfs.fs.create_dir(&parent_path, &dirname, uid, gid)?;
     Ok(())
 }
 
@@ -300,6 +320,9 @@ pub fn getcwd() -> FsResult<String> {
 
 /// Create an empty file or update timestamp
 pub fn touch(file_path: &str) -> FsResult<()> {
+    // Get credentials BEFORE acquiring VFS lock
+    let (uid, gid) = get_current_owner();
+    
     let mut vfs_guard = VFS.lock();
     let vfs = vfs_guard.as_mut().ok_or(FsError::IoError)?;
     
@@ -317,7 +340,7 @@ pub fn touch(file_path: &str) -> FsResult<()> {
             if filename.is_empty() {
                 return Err(FsError::InvalidPath);
             }
-            vfs.fs.create_file(&parent_path, &filename)?;
+            vfs.fs.create_file(&parent_path, &filename, uid, gid)?;
             Ok(())
         }
         Err(e) => Err(e),
@@ -346,6 +369,9 @@ pub fn read_to_string(file_path: &str) -> FsResult<String> {
 
 /// Write string to file (creates or overwrites)
 pub fn write_string(file_path: &str, content: &str) -> FsResult<()> {
+    // Get credentials BEFORE acquiring VFS lock
+    let (uid, gid) = get_current_owner();
+    
     let mut vfs_guard = VFS.lock();
     let vfs = vfs_guard.as_mut().ok_or(FsError::IoError)?;
     
@@ -367,7 +393,7 @@ pub fn write_string(file_path: &str, content: &str) -> FsResult<()> {
             if filename.is_empty() {
                 return Err(FsError::InvalidPath);
             }
-            vfs.fs.create_file(&parent_path, &filename)?
+            vfs.fs.create_file(&parent_path, &filename, uid, gid)?
         }
         Err(e) => return Err(e),
     };

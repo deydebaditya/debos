@@ -39,11 +39,8 @@ pub struct Inode {
 }
 
 impl Inode {
-    /// Create a new file inode
-    pub fn new_file(id: u64, name: String, parent: u64) -> Self {
-        // Get current user's uid/gid if available
-        let (uid, gid) = get_current_owner();
-        
+    /// Create a new file inode with specified owner
+    pub fn new_file(id: u64, name: String, parent: u64, uid: u32, gid: u32) -> Self {
         Inode {
             id,
             inode_type: InodeType::File,
@@ -58,11 +55,8 @@ impl Inode {
         }
     }
     
-    /// Create a new directory inode
-    pub fn new_directory(id: u64, name: String, parent: Option<u64>) -> Self {
-        // Get current user's uid/gid if available
-        let (uid, gid) = get_current_owner();
-        
+    /// Create a new directory inode with specified owner
+    pub fn new_directory(id: u64, name: String, parent: Option<u64>, uid: u32, gid: u32) -> Self {
         Inode {
             id,
             inode_type: InodeType::Directory,
@@ -133,7 +127,7 @@ impl RamFs {
         let mut inodes = BTreeMap::new();
         
         // Create root directory (inode 1)
-        let root = Inode::new_directory(1, String::from("/"), None);
+        let root = Inode::new_directory(1, String::from("/"), None, 0, 0); // Root directory owned by root
         inodes.insert(1, root);
         
         RamFs {
@@ -201,18 +195,18 @@ impl RamFs {
         self.inodes.get_mut(&id).ok_or(FsError::NotFound)
     }
     
-    /// Create a file
-    pub fn create_file(&mut self, dir_path: &str, name: &str) -> FsResult<u64> {
-        self.create_inode(dir_path, name, InodeType::File)
+    /// Create a file with specified owner
+    pub fn create_file(&mut self, dir_path: &str, name: &str, uid: u32, gid: u32) -> FsResult<u64> {
+        self.create_inode(dir_path, name, InodeType::File, uid, gid)
     }
     
-    /// Create a directory
-    pub fn create_dir(&mut self, dir_path: &str, name: &str) -> FsResult<u64> {
-        self.create_inode(dir_path, name, InodeType::Directory)
+    /// Create a directory with specified owner
+    pub fn create_dir(&mut self, dir_path: &str, name: &str, uid: u32, gid: u32) -> FsResult<u64> {
+        self.create_inode(dir_path, name, InodeType::Directory, uid, gid)
     }
     
-    /// Create an inode of the specified type
-    fn create_inode(&mut self, dir_path: &str, name: &str, inode_type: InodeType) -> FsResult<u64> {
+    /// Create an inode of the specified type with specified owner
+    fn create_inode(&mut self, dir_path: &str, name: &str, inode_type: InodeType, uid: u32, gid: u32) -> FsResult<u64> {
         // Validate name
         if name.is_empty() || name.contains('/') {
             return Err(FsError::InvalidPath);
@@ -241,8 +235,8 @@ impl RamFs {
         // Create new inode
         let new_id = self.alloc_inode_id();
         let new_inode = match inode_type {
-            InodeType::File => Inode::new_file(new_id, String::from(name), parent_id),
-            InodeType::Directory => Inode::new_directory(new_id, String::from(name), Some(parent_id)),
+            InodeType::File => Inode::new_file(new_id, String::from(name), parent_id, uid, gid),
+            InodeType::Directory => Inode::new_directory(new_id, String::from(name), Some(parent_id), uid, gid),
             InodeType::Symlink => return Err(FsError::InvalidArgument), // Not implemented
         };
         

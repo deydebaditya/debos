@@ -15,6 +15,7 @@
 //! - AArch64 (ARM64/Apple Silicon)
 
 #![no_std]
+#![allow(warnings)] // Suppress all compiler warnings
 #![cfg_attr(target_arch = "x86_64", feature(abi_x86_interrupt))]
 
 extern crate alloc;
@@ -84,6 +85,10 @@ fn start_shell() {
         64  // High priority
     );
     println!("[INIT] Shell started with TID: {}", shell_tid);
+    
+    // Manually start the scheduler to run the shell thread immediately
+    // This ensures the shell starts right away instead of waiting for timer interrupt
+    scheduler::start_scheduler();
 }
 
 /// Idle loop - puts CPU to sleep waiting for interrupts

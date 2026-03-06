@@ -4,6 +4,7 @@
 
 #![no_std]
 #![no_main]
+#![allow(warnings)] // Suppress all compiler warnings
 #![feature(alloc_error_handler)]
 
 extern crate alloc;

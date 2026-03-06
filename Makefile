@@ -29,7 +29,7 @@ ARM_KERNEL := $(TARGET_DIR)/$(ARM_TARGET)/release/debos-kernel
 X86_KERNEL := $(TARGET_DIR)/$(X86_TARGET)/release/debos-kernel
 
 # QEMU settings
-# Note: -nographic already redirects serial to stdio
+# Note: -nographic redirects serial to stdio automatically
 QEMU_X86 := qemu-system-x86_64 -machine q35 -m 512M -nographic
 QEMU_ARM := qemu-system-aarch64 -machine virt -cpu cortex-a72 -m 512M -nographic
 
@@ -86,9 +86,10 @@ run: run-$(DEFAULT_ARCH)
 run-x86: build-x86
 	@echo "Running DebOS kernel in QEMU (x86_64)..."
 	@echo "Press Ctrl+A then X to exit QEMU"
-	$(QEMU_X86) -kernel $(X86_KERNEL)
+	$(QEMU_X86) -kernel $(X86_KERNEL) -chardev stdio,id=serial0,mux=on,signal=off -serial chardev:serial0 -monitor none
 
 # Run AArch64 in QEMU
+# -nographic connects PL011 serial to stdio automatically
 run-arm: build-arm
 	@echo "Running DebOS kernel in QEMU (AArch64)..."
 	@echo "Press Ctrl+A then X to exit QEMU"
@@ -215,22 +216,7 @@ iso-x86: build-x86
 	@echo "Note: x86_64 kernel uses bootloader_api - full ISO boot support is in development"
 	@mkdir -p iso/boot/grub
 	@cp $(X86_KERNEL) iso/boot/debos-kernel
-	@cat > iso/boot/grub/grub.cfg << 'GRUBEOF' || true
-set timeout=5
-set default=0
-
-menuentry "DebOS" {
-    # Try multiboot2 first (if kernel supports it)
-    multiboot2 /boot/debos-kernel
-    boot
-}
-
-menuentry "DebOS (legacy)" {
-    # Fallback to multiboot (legacy)
-    multiboot /boot/debos-kernel
-    boot
-}
-GRUBEOF
+	@printf 'set timeout=5\nset default=0\n\nmenuentry "DebOS" {\n    multiboot2 /boot/debos-kernel\n    boot\n}\n\nmenuentry "DebOS (legacy)" {\n    multiboot /boot/debos-kernel\n    boot\n}\n' > iso/boot/grub/grub.cfg
 	@if command -v grub-mkrescue >/dev/null 2>&1; then \
 		echo "Using grub-mkrescue..."; \
 		grub-mkrescue -o debos.iso iso 2>/dev/null || \

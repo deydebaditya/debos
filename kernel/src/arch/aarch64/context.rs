@@ -103,6 +103,10 @@ context_switch:
     // Save return address as PC
     str     x30, [x0, #(13*8)]
     
+    // Save current SPSR
+    mrs     x2, SPSR_EL1
+    str     x2, [x0, #(14*8)]
+    
     // Fall through to load new context
     
 context_switch_first:
@@ -122,6 +126,13 @@ context_switch_first:
     // Load stack pointer
     ldr     x2, [x1, #(12*8)]
     mov     sp, x2
+    
+    // Restore SPSR to ensure interrupts are enabled
+    ldr     x2, [x1, #(14*8)]  // Load SPSR (offset 14*8 = 112 bytes)
+    msr     SPSR_EL1, x2
+    
+    // Enable interrupts explicitly (DAIF clear) - ensure IRQ/FIQ are enabled
+    msr     DAIFClr, #0xf
     
     // Load PC and jump
     ldr     x2, [x1, #(13*8)]
