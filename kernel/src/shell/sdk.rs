@@ -4,8 +4,8 @@
 //! to access OS capabilities like credentials, filesystem, etc.
 //!
 //! ## Design Principles
-//! - **Deadlock-free**: Never locks scheduler while holding other locks
-//! - **Safe fallbacks**: Always provides sensible defaults
+//! - **Deadlock-free**: Uses try_lock() to avoid blocking
+//! - **Safe fallbacks**: Always provides sensible defaults when lock unavailable
 //! - **Extensible**: Easy to add new utilities for custom commands
 //!
 //! ## Usage
@@ -30,14 +30,14 @@ static CACHED_GID: AtomicU32 = AtomicU32::new(1000);
 /// Initialize the SDK (called during shell startup)
 pub fn init() {
     // Try to get real credentials once at startup
-    // If scheduler lock is available, we'll use the default
+    // If scheduler lock is available, we'll update the cache
     update_cache();
 }
 
-/// Update the credential cache (safe, won't deadlock)
+/// Update the credential cache (safe, uses try_lock to avoid deadlock)
 fn update_cache() {
-    // Try to get credentials, but don't block if scheduler is locked
-    // This is a best-effort update
+    // Try to get credentials without blocking
+    // This is a best-effort update - if lock is held, we skip
     if let Some(creds) = try_get_credentials() {
         CACHED_UID.store(creds.uid.as_raw(), Ordering::Relaxed);
         CACHED_GID.store(creds.gid.as_raw(), Ordering::Relaxed);
@@ -45,19 +45,11 @@ fn update_cache() {
 }
 
 /// Try to get credentials without blocking (returns None if scheduler is locked)
-/// This prevents deadlocks by not waiting for locks
+/// This prevents deadlocks by using try_lock() instead of lock()
 fn try_get_credentials() -> Option<ProcessCredentials> {
-    // For now, we'll use a simple approach: try to get credentials
-    // but if it would block, return None and use cached values
-    // In a real implementation, we'd use try_lock() if available
-    
-    // Check if we can safely access scheduler
-    // Since spin::Mutex doesn't have try_lock, we'll use a different approach:
-    // Store credentials in thread-local storage or use atomic operations
-    
-    // For now, attempt to get credentials (this might still deadlock,
-    // but we'll provide a fallback mechanism)
-    crate::scheduler::current_credentials()
+    // Use try_lock() to avoid blocking if scheduler is already locked
+    // This is the key to being deadlock-free
+    crate::scheduler::try_current_credentials()
 }
 
 /// Get current user ID (safe, uses cache to avoid deadlocks)

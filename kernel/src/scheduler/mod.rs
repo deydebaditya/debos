@@ -319,6 +319,15 @@ pub fn current_credentials() -> Option<crate::security::credentials::ProcessCred
     SCHEDULER.lock().current.as_ref().map(|t| t.credentials.clone())
 }
 
+/// Try to get the current thread's credentials without blocking
+/// Returns None if the scheduler lock is already held (prevents deadlock)
+pub fn try_current_credentials() -> Option<crate::security::credentials::ProcessCredentials> {
+    // Use try_lock() to avoid deadlock if scheduler is already locked
+    SCHEDULER.try_lock().and_then(|guard| {
+        guard.current.as_ref().map(|t| t.credentials.clone())
+    })
+}
+
 /// Set the current thread's credentials
 pub fn set_credentials(creds: crate::security::credentials::ProcessCredentials) -> Result<(), &'static str> {
     let mut scheduler = SCHEDULER.lock();

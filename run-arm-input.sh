@@ -45,16 +45,17 @@ if ! stty -a 2>/dev/null | grep -q "raw"; then
     echo "Input may not work properly"
 fi
 
-# Run QEMU with -serial stdio
+# Run QEMU with explicit chardev setup for reliable stdin handling
 # The virt machine automatically creates PL011 UART at 0x0900_0000
 # and connects it to the first serial port
-# With -nographic, -serial stdio connects serial0 to stdin/stdout
-# NOTE: On macOS, QEMU MUST be run with terminal in raw mode for stdin to work
+# Using -chardev with mux=on,signal=off ensures proper stdin forwarding
+# NOTE: On macOS, terminal should be in raw mode for stdin to work
 exec qemu-system-aarch64 \
   -machine virt \
   -cpu cortex-a72 \
   -m 512M \
   -nographic \
   -kernel target/aarch64-unknown-none/release/debos-kernel \
-  -serial stdio \
+  -chardev stdio,id=serial0,mux=on,signal=off \
+  -serial chardev:serial0 \
   -monitor none

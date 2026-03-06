@@ -15,18 +15,12 @@ use super::path;
 
 /// Get current user's uid/gid for file ownership
 /// This is called BEFORE acquiring VFS lock to avoid nested locks
+/// Uses the shell SDK which has try_lock() to avoid deadlocks
 fn get_current_owner() -> (u32, u32) {
-    // FIXME: Temporarily hardcode to avoid potential deadlock with scheduler lock
-    // The scheduler lock might be held when this is called, causing a deadlock
-    // TODO: Fix this properly by ensuring scheduler lock is not held when calling VFS operations
-    // For now, use default debos user (UID 1000) to unblock the shell
-    (1000, 1000)
-    
-    // Original code (commented out to debug deadlock):
-    // match crate::scheduler::current_credentials() {
-    //     Some(creds) => (creds.uid.as_raw(), creds.gid.as_raw()),
-    //     None => (0, 0),
-    // }
+    // Use the SDK's deadlock-free credential access
+    // The SDK uses try_lock() on the scheduler, so it won't block
+    // If the scheduler lock is held, it returns cached values
+    crate::shell::sdk::get_owner_ids()
 }
 
 /// Maximum number of open files per process
