@@ -120,26 +120,19 @@ impl Uart {
         unsafe {
             let base = self.base as *mut u32;
 
-            // Disable UART while configuring
-            base.add(regs::CR / 4).write_volatile(0);
+            // QEMU already configures PL011 with working defaults.
+            // Fully disabling/re-enabling the UART can break QEMU's internal
+            // chardev connection state. Instead, just layer our config on top.
 
-            // Clear all pending interrupts
+            // Clear any pending interrupts
             base.add(regs::ICR / 4).write_volatile(0x7FF);
 
-            // Baud rate 115200 with 24 MHz clock
-            base.add(regs::IBRD / 4).write_volatile(13);
-            base.add(regs::FBRD / 4).write_volatile(1);
-
-            // 8N1, FIFO *disabled* (bit 4 = 0).
-            // Without FIFO, the 1-char holding register triggers an RX interrupt
-            // on every received byte -- critical for QEMU compatibility.
-            base.add(regs::LCR_H / 4).write_volatile(0x60);
-
-            // Enable RX and RX-timeout interrupts
+            // Enable RX and RX-timeout interrupts (leave rest of IMSC as-is)
             base.add(regs::IMSC / 4).write_volatile(RXIM | RTIM);
 
-            // Enable UART, TX, RX
-            base.add(regs::CR / 4).write_volatile(0x301);
+            // Ensure UART + TX + RX are enabled (may already be set by QEMU)
+            let cr = base.add(regs::CR / 4).read_volatile();
+            base.add(regs::CR / 4).write_volatile(cr | 0x301);
         }
     }
 
