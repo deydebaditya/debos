@@ -29,7 +29,7 @@ ARM_KERNEL := $(TARGET_DIR)/$(ARM_TARGET)/release/debos-kernel
 X86_KERNEL := $(TARGET_DIR)/$(X86_TARGET)/release/debos-kernel
 
 # QEMU settings
-# Note: -nographic already redirects serial to stdio
+# Note: -nographic redirects serial to stdio automatically
 QEMU_X86 := qemu-system-x86_64 -machine q35 -m 512M -nographic
 QEMU_ARM := qemu-system-aarch64 -machine virt -cpu cortex-a72 -m 512M -nographic
 
@@ -86,9 +86,10 @@ run: run-$(DEFAULT_ARCH)
 run-x86: build-x86
 	@echo "Running DebOS kernel in QEMU (x86_64)..."
 	@echo "Press Ctrl+A then X to exit QEMU"
-	$(QEMU_X86) -kernel $(X86_KERNEL)
+	$(QEMU_X86) -kernel $(X86_KERNEL) -chardev stdio,id=serial0,mux=on,signal=off -serial chardev:serial0 -monitor none
 
 # Run AArch64 in QEMU
+# -nographic connects PL011 serial to stdio automatically
 run-arm: build-arm
 	@echo "Running DebOS kernel in QEMU (AArch64)..."
 	@echo "Press Ctrl+A then X to exit QEMU"

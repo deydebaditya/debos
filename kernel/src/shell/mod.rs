@@ -5,6 +5,7 @@
 
 mod commands;
 mod input;
+pub(crate) mod sdk;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -15,20 +16,23 @@ const MAX_LINE_LENGTH: usize = 256;
 
 /// The kernel shell
 pub struct Shell {
-    /// Command history
     history: Vec<String>,
-    /// Current input buffer
     input_buffer: String,
-    /// Whether the shell is running
     running: bool,
-    /// Current working directory (cached for prompt display)
     current_dir: String,
+    /// Skip next \n if it follows a \r (terminals send \r\n for Enter)
+    skip_lf: bool,
 }
 
 impl Shell {
     /// Create a new shell instance
     pub fn new() -> Self {
+        // Initialize SDK utilities (safe credential access)
+        // Do this first, but don't block if scheduler isn't ready
+        sdk::init();
+        
         // Get current working directory
+        // Use fallback if getcwd fails (shouldn't happen, but be safe)
         let current_dir = crate::fs::getcwd().unwrap_or_else(|_| String::from("/"));
         
         Shell {
@@ -36,6 +40,7 @@ impl Shell {
             input_buffer: String::with_capacity(MAX_LINE_LENGTH),
             running: true,
             current_dir,
+            skip_lf: false,
         }
     }
     
@@ -47,15 +52,20 @@ impl Shell {
             self.print_prompt();
             
             // Read a line of input
-            if let Some(line) = self.read_line() {
-                let trimmed = line.trim();
-                
-                if !trimmed.is_empty() {
-                    // Add to history
-                    self.history.push(line.clone());
+            match self.read_line() {
+                Some(line) => {
+                    let trimmed = line.trim();
                     
-                    // Execute the command
-                    self.execute(trimmed);
+                    if !trimmed.is_empty() {
+                        self.history.push(line.clone());
+                        self.execute(trimmed);
+                    }
+                }
+                None => {
+                    // Ctrl+C or Ctrl+D was pressed
+                    // For Ctrl+C, continue loop to show new prompt
+                    // For Ctrl+D, self.running will be false and we'll exit
+                    continue;
                 }
             }
         }
@@ -75,56 +85,110 @@ impl Shell {
     
     /// Print the shell prompt
     fn print_prompt(&mut self) {
-        // Use cached current directory - it's updated when cd is called
-        crate::print!("debos ({})> ", self.current_dir);
+        let username = sdk::current_username();
+        crate::print!("{} ({})> ", username, self.current_dir);
     }
     
     /// Read a line of input from serial
     fn read_line(&mut self) -> Option<String> {
         self.input_buffer.clear();
-        
+
+        // Key-repeat throttle (timer at 100 Hz → 1 tick = 10 ms).
+        //
+        // Terminal auto-repeat sends chars every ~30 ms when held.
+        // A deliberate re-press after lifting the finger has a natural
+        // gap of ≥200 ms.  We use that gap to distinguish the two:
+        //
+        //  gap ≥ GAP_THRESHOLD  → new press  → accept immediately
+        //  gap <  GAP_THRESHOLD → auto-repeat → throttle
+        //     first 3 s of hold: suppress entirely
+        //     after 3 s: allow one repeat per 500 ms
+        const GAP_THRESHOLD: u64 = 20;  // 200 ms – new press detection
+        const INITIAL_DELAY: u64 = 300; // 3 s before auto-repeat starts
+        const REPEAT_INTERVAL: u64 = 50; // 500 ms between repeats
+        let mut last_char: u8 = 0;
+        let mut last_raw_tick: u64 = 0;  // tick of most recent raw arrival
+        let mut hold_start_tick: u64 = 0; // tick when the hold began
+        let mut last_accept_tick: u64 = 0;
+
         loop {
             if let Some(c) = input::read_char() {
+                if self.skip_lf {
+                    self.skip_lf = false;
+                    if c == b'\n' {
+                        continue;
+                    }
+                }
+
+                let now = crate::scheduler::ticks();
+
+                if c >= 0x20 && c < 0x7F && c == last_char {
+                    let gap = now.wrapping_sub(last_raw_tick);
+                    last_raw_tick = now;
+
+                    if gap >= GAP_THRESHOLD {
+                        // Finger was lifted and pressed again → new press
+                        hold_start_tick = now;
+                        last_accept_tick = now;
+                        // fall through to accept
+                    } else {
+                        // Rapid arrival → terminal auto-repeat (key held)
+                        let held_for = now.wrapping_sub(hold_start_tick);
+                        if held_for < INITIAL_DELAY {
+                            continue; // suppress during initial hold-off
+                        }
+                        let since_last = now.wrapping_sub(last_accept_tick);
+                        if since_last < REPEAT_INTERVAL {
+                            continue; // too soon for next repeat tick
+                        }
+                        last_accept_tick = now;
+                        // fall through to accept
+                    }
+                } else if c >= 0x20 && c < 0x7F {
+                    // Different printable char → always accept, reset state
+                    last_char = c;
+                    last_raw_tick = now;
+                    hold_start_tick = now;
+                    last_accept_tick = now;
+                } else {
+                    // Control character → accept, reset repeat state
+                    last_char = 0;
+                }
+
                 match c {
-                    // Enter - submit line
                     b'\r' | b'\n' => {
+                        if c == b'\r' {
+                            self.skip_lf = true;
+                        }
                         println!();
                         return Some(self.input_buffer.clone());
                     }
-                    // Backspace
                     0x7F | 0x08 => {
                         if !self.input_buffer.is_empty() {
                             self.input_buffer.pop();
-                            // Erase character on screen
                             crate::print!("\x08 \x08");
                         }
                     }
-                    // Ctrl+C - cancel line
                     0x03 => {
                         println!("^C");
                         self.input_buffer.clear();
-                        return Some(String::new());
+                        return None;
                     }
-                    // Ctrl+D - exit shell
                     0x04 => {
                         println!("^D");
                         self.running = false;
                         return None;
                     }
-                    // Regular printable character
                     c if c >= 0x20 && c < 0x7F => {
                         if self.input_buffer.len() < MAX_LINE_LENGTH {
                             self.input_buffer.push(c as char);
                             crate::print!("{}", c as char);
                         }
                     }
-                    // Ignore other control characters
                     _ => {}
                 }
             } else {
-                // No input available - small delay to prevent excessive CPU usage
-                // Timer interrupts will handle preemption automatically
-                for _ in 0..1000 {
+                for _ in 0..100 {
                     core::hint::spin_loop();
                 }
             }
@@ -153,6 +217,7 @@ impl Shell {
             "clear" | "cls" => commands::clear(args),
             "uptime" => commands::uptime(args),
             "reboot" => commands::reboot(args),
+            "shutdown" | "poweroff" => commands::shutdown(args),
             
             // Block device commands
             "disk" => commands::disk(args),
@@ -232,6 +297,16 @@ pub fn start() {
 
 /// Entry point for the shell thread
 pub extern "C" fn shell_thread_entry() {
+    // Debug: Confirm shell thread is running
+    crate::println!("[SHELL] Thread entry point reached");
+    
+    // Ensure interrupts are enabled (safety check)
+    #[cfg(target_arch = "aarch64")]
+    {
+        crate::arch::enable_interrupts();
+        crate::println!("[SHELL] Interrupts enabled, starting shell...");
+    }
+    
     start();
     crate::scheduler::exit_thread(0);
 }

@@ -109,7 +109,7 @@ pub fn sys_mem_map(
                 page_flags |= paging::PageFlags::WRITABLE;
             }
             if flags & mem_flags::USER != 0 {
-                page_flags |= paging::PageFlags::USER;
+                page_flags |= paging::PageFlags::USER_ACCESSIBLE;
             }
             // Note: NX bit handling would go here for EXECUTE flag
             
@@ -214,7 +214,7 @@ pub fn sys_mem_protect(virt_addr: u64, length: u64, flags: u64) -> SyscallResult
                     page_flags |= paging::PageFlags::WRITABLE;
                 }
                 if flags & mem_flags::USER != 0 {
-                    page_flags |= paging::PageFlags::USER;
+                    page_flags |= paging::PageFlags::USER_ACCESSIBLE;
                 }
                 
                 paging::map_page(vaddr as usize, paddr, page_flags)

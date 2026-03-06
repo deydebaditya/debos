@@ -133,6 +133,9 @@ pub fn init() {
     // Enable timer interrupt
     gic.enable_interrupt(TIMER_IRQ);
     
+    // Enable UART RX interrupt
+    gic.enable_interrupt(UART_IRQ);
+    
     crate::println!("[OK] GIC initialized");
 }
 
@@ -154,8 +157,9 @@ pub fn handle_interrupt() {
             GIC.lock().end_interrupt(irq);
         }
         UART_IRQ => {
-            // UART interrupt - could handle input here
-            gic.end_interrupt(irq);
+            drop(gic);
+            super::uart::handle_rx_interrupt();
+            GIC.lock().end_interrupt(irq);
         }
         _ => {
             crate::println!("[IRQ] Unknown interrupt: {}", irq);

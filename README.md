@@ -270,7 +270,10 @@ make run-x86      # Run x86_64 kernel in QEMU
 
 ### 4. Exit QEMU
 
-Press `Ctrl+A` then `X` to exit QEMU, or type `exit` in the DebOS shell.
+- Type `shutdown` or `poweroff` in the DebOS shell to power off (terminates QEMU)
+- Type `reboot` in the DebOS shell to restart
+- Press `Ctrl+A` then `X` to force-quit QEMU
+- Type `exit` in the DebOS shell to exit the shell (kernel continues running)
 
 ---
 
@@ -311,17 +314,26 @@ make run-x86-disk  # x86_64 with disk
 ### Use in DebOS Shell
 
 ```
-debos> disk          # Shows: VirtIO-Block: 32768 sectors
-debos> mount         # Mounts FAT32 filesystem
-debos> fatls /       # Lists files
-debos> fatcat HELLO.TXT  # Reads file content
+debos (/)> disk          # Shows: VirtIO-Block: 32768 sectors
+debos (/)> mount         # Mounts FAT32 filesystem
+debos (/)> fatls /       # Lists files
+debos (/)> fatcat HELLO.TXT  # Reads file content
 ```
 
 ---
 
 ## Interactive Shell
 
-DebOS includes a built-in kernel shell with 40+ commands:
+DebOS includes a built-in kernel shell with 40+ commands. The prompt shows the
+current user and working directory, and updates automatically after `su`,
+`login`, or `sudo`:
+
+```
+debos (/)> su megha
+Switched to user: megha
+megha (/)> cd /home
+megha (/home)>
+```
 
 ### System Commands
 ```
@@ -331,6 +343,8 @@ debos> mem           # Memory statistics
 debos> ps            # List threads
 debos> uptime        # Show uptime
 debos> clear         # Clear screen
+debos> shutdown      # Power off the system (terminates QEMU)
+debos> reboot        # Reboot the system (restarts QEMU)
 ```
 
 ### Filesystem Commands (RamFS)
@@ -481,10 +495,11 @@ Note: x86_64 emulation on Apple Silicon is functional but slower than native AAr
 
 ### AArch64 Specifics
 - Direct kernel boot (suitable for QEMU virt machine)
-- GICv2 for interrupt handling
-- Serial output via PL011 UART
+- GICv2 for interrupt handling (timer + UART IRQs)
+- Serial I/O via PL011 UART (polling + interrupt-driven RX)
 - 4-level paging (compatible layout)
 - ARM architectural timer for preemption
+- PSCI support for `shutdown` and `reboot` (via HVC)
 
 ---
 
@@ -633,6 +648,7 @@ make iso-x86
 
 ## Resources
 
+- [Changelog](CHANGELOG.md) - Release history and notable changes
 - [Implementation Plan](IMPLEMENTATION_PLAN.md) - Detailed development roadmap
 - [Test Report](TEST_REPORT.md) - Comprehensive test results
 - [VirtualBox Setup Guide](docs/VIRTUALBOX_SETUP.md) - Running DebOS in VirtualBox

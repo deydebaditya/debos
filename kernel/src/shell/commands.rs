@@ -26,6 +26,7 @@ pub fn help(_args: &[&str]) {
     println!("  clear, cls     - Clear the screen");
     println!("  exit, quit     - Exit the shell");
     println!("  reboot         - Reboot the system");
+    println!("  shutdown       - Power off the system");
     println!();
     println!("File Commands (RamFS):");
     println!("  pwd            - Print working directory");
@@ -188,7 +189,7 @@ pub fn clear(_args: &[&str]) {
 /// Reboot the system
 pub fn reboot(_args: &[&str]) {
     println!("Rebooting system...");
-    
+
     #[cfg(target_arch = "x86_64")]
     {
         unsafe {
@@ -197,10 +198,39 @@ pub fn reboot(_args: &[&str]) {
             port.write(0xFE);
         }
     }
-    
+
     #[cfg(target_arch = "aarch64")]
+    unsafe {
+        // PSCI SYSTEM_RESET via HVC on QEMU virt machine
+        core::arch::asm!(
+            "ldr x0, =0x84000009",
+            "hvc #0",
+            options(noreturn)
+        );
+    }
+}
+
+pub fn shutdown(_args: &[&str]) {
+    println!("Shutting down...");
+
+    #[cfg(target_arch = "x86_64")]
     {
-        println!("(Reboot not implemented on AArch64 - please restart QEMU)");
+        unsafe {
+            // QEMU shutdown via ACPI (isa-debug-exit or ACPI PM1a)
+            use x86_64::instructions::port::Port;
+            let mut port = Port::<u16>::new(0x604);
+            port.write(0x2000);
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        // PSCI SYSTEM_OFF via HVC on QEMU virt machine
+        core::arch::asm!(
+            "ldr x0, =0x84000008",
+            "hvc #0",
+            options(noreturn)
+        );
     }
 }
 
@@ -817,11 +847,12 @@ pub fn mkdir(args: &[&str]) {
         // Execute mkdir and ensure it completes
         let result = fs::mkdir(path);
         
-        // Explicitly handle the result to ensure function returns
+        // Explicitly handle the result to ensure function completes
         match result {
             Ok(()) => {
                 // Success - directory created (no output needed, like Unix mkdir)
-                // Explicitly return to ensure function completes
+                // Debug: Uncomment to verify mkdir completes
+                // println!("[DEBUG] mkdir '{}' completed", path);
             }
             Err(e) => {
                 println!("mkdir: cannot create directory '{}': {}", path, e);
@@ -829,7 +860,7 @@ pub fn mkdir(args: &[&str]) {
         }
     }
     
-    // Ensure function returns immediately after processing all arguments
+    // Function returns here - if we reach this point, mkdir completed successfully
 }
 
 /// Remove empty directory
@@ -993,23 +1024,19 @@ fn print_tree(path: &str, prefix: &str, is_last: bool) -> Result<(), fs::FsError
 
 /// Show current user
 pub fn whoami(_args: &[&str]) {
-    use crate::security;
+    use crate::shell::sdk;
     
-    let uid = security::current_uid();
-    if let Some(username) = security::database::get_username(uid) {
-        println!("{}", username);
-    } else {
-        println!("uid={}", uid);
-    }
+    // Use SDK for safe credential access (no deadlock)
+    println!("{}", sdk::current_username());
 }
 
 /// Show user and group info
 pub fn id(args: &[&str]) {
-    use crate::security::{self, database, identity::GroupId};
+    use crate::shell::sdk;
+    use crate::security::{database, identity::GroupId};
     
     let username = if args.is_empty() {
-        let uid = security::current_uid();
-        database::get_username(uid).unwrap_or_else(|| alloc::format!("{}", uid))
+        sdk::current_username()
     } else {
         alloc::string::String::from(args[0])
     };
@@ -1095,7 +1122,7 @@ pub fn useradd(args: &[&str]) {
     // Check if running as admin
     if !security::is_root() && !security::has_capability(security::capability::Capability::DebosUserAdmin) {
         // Check if current user is admin
-        let uid = security::current_uid();
+        let uid = crate::shell::sdk::current_uid();
         if let Some(user) = database::get_user_by_uid(uid) {
             if !user.is_admin {
                 println!("useradd: permission denied (requires admin)");
@@ -1153,7 +1180,7 @@ pub fn userdel(args: &[&str]) {
     
     // Check permissions
     if !security::is_root() {
-        let uid = security::current_uid();
+        let uid = crate::shell::sdk::current_uid();
         if let Some(user) = database::get_user_by_uid(uid) {
             if !user.is_admin {
                 println!("userdel: permission denied (requires admin)");
@@ -1185,12 +1212,12 @@ pub fn passwd(args: &[&str]) {
     
     let target_user = if args.is_empty() {
         // Change own password
-        let uid = security::current_uid();
+        let uid = crate::shell::sdk::current_uid();
         database::get_username(uid).unwrap_or_else(|| alloc::format!("uid={}", uid))
     } else {
         // Changing another user's password requires admin
         if !security::is_root() {
-            let uid = security::current_uid();
+            let uid = crate::shell::sdk::current_uid();
             if let Some(user) = database::get_user_by_uid(uid) {
                 if !user.is_admin {
                     println!("passwd: permission denied (requires admin to change other's password)");
@@ -1288,7 +1315,7 @@ pub fn su(args: &[&str]) {
     
     // For switching to root, check if current user is admin
     if target_user == "root" {
-        let current_uid = security::current_uid();
+        let current_uid = crate::shell::sdk::current_uid();
         if let Some(current_user) = database::get_user_by_uid(current_uid) {
             if !current_user.is_admin {
                 println!("su: permission denied (requires admin privileges)");
@@ -1319,10 +1346,13 @@ pub fn su(args: &[&str]) {
     let creds = auth::create_session(&user);
     
     // Set credentials for current thread
-    if let Err(e) = crate::scheduler::set_credentials(creds) {
+    if let Err(e) = crate::scheduler::set_credentials(creds.clone()) {
         println!("su: failed to switch user: {}", e);
         return;
     }
+    
+    // Update SDK cache to reflect new credentials
+    crate::shell::sdk::update_credentials(&creds);
     
     println!("Switched to user: {}", target_user);
 }
@@ -1337,7 +1367,7 @@ pub fn sudo(args: &[&str]) {
     }
     
     // Check if current user is admin
-    let current_uid = security::current_uid();
+    let current_uid = crate::shell::sdk::current_uid();
     let current_user = match database::get_user_by_uid(current_uid) {
         Some(u) => u,
         None => {
@@ -1387,10 +1417,13 @@ pub fn sudo(args: &[&str]) {
     // Create root credentials
     let root_creds = crate::security::credentials::ProcessCredentials::root();
     
-    if let Err(e) = crate::scheduler::set_credentials(root_creds) {
+    let root_creds_clone = root_creds.clone();
+    if let Err(e) = crate::scheduler::set_credentials(root_creds_clone.clone()) {
         println!("sudo: failed to elevate: {}", e);
         return;
     }
+    // Update SDK cache for root
+    crate::shell::sdk::update_credentials(&root_creds_clone);
     
     // Log the sudo action
     policy::audit_log(
@@ -1407,8 +1440,10 @@ pub fn sudo(args: &[&str]) {
     // For now, just demonstrate the privilege elevation
     
     // Restore original credentials
-    if let Some(creds) = old_creds {
-        let _ = crate::scheduler::set_credentials(creds);
+    if let Some(creds) = old_creds.clone() {
+        let _ = crate::scheduler::set_credentials(creds.clone());
+        // Update SDK cache
+        crate::shell::sdk::update_credentials(&creds);
     }
 }
 
@@ -1435,10 +1470,12 @@ pub fn login(_args: &[&str]) {
             match auth::authenticate(username, "") {
                 auth::AuthResult::Success(user) | auth::AuthResult::NoPasswordRequired(user) => {
                     let creds = auth::create_session(&user);
-                    if let Err(e) = crate::scheduler::set_credentials(creds) {
+                    if let Err(e) = crate::scheduler::set_credentials(creds.clone()) {
                         println!("Login failed: {}", e);
                         return;
                     }
+                    // Update SDK cache
+                    crate::shell::sdk::update_credentials(&creds);
                     println!("Welcome, {}!", username);
                 }
                 _ => {

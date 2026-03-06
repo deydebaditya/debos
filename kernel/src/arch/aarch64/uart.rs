@@ -1,98 +1,140 @@
 //! PL011 UART Driver for AArch64
 //!
-//! Provides serial output for debugging on QEMU virt machine.
-//! The PL011 UART is memory-mapped at 0x0900_0000.
+//! Provides serial I/O on QEMU virt machine.
+//! The PL011 UART is memory-mapped at 0x0900_0000, IRQ 33.
+//!
+//! RX uses interrupt-driven buffering: PL011 fires IRQ on receive,
+//! the handler drains the FIFO into a lock-free ring buffer,
+//! and the shell reads from the buffer.
 
 use core::fmt;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::Mutex;
 
-/// PL011 UART base address on QEMU virt machine
 const UART_BASE: usize = 0x0900_0000;
 
-/// PL011 Register offsets
 mod regs {
-    pub const DR: usize = 0x00;      // Data Register
-    pub const FR: usize = 0x18;      // Flag Register
-    pub const IBRD: usize = 0x24;    // Integer Baud Rate
-    pub const FBRD: usize = 0x28;    // Fractional Baud Rate
-    pub const LCR_H: usize = 0x2C;   // Line Control Register
-    pub const CR: usize = 0x30;      // Control Register
-    pub const IMSC: usize = 0x38;    // Interrupt Mask Set/Clear
-    pub const ICR: usize = 0x44;     // Interrupt Clear Register
+    pub const DR: usize = 0x00;
+    pub const RSR: usize = 0x04;
+    pub const FR: usize = 0x18;
+    pub const IBRD: usize = 0x24;
+    pub const FBRD: usize = 0x28;
+    pub const LCR_H: usize = 0x2C;
+    pub const CR: usize = 0x30;
+    pub const IFLS: usize = 0x34;    // Interrupt FIFO Level Select
+    pub const IMSC: usize = 0x38;
+    pub const MIS: usize = 0x40;     // Masked Interrupt Status
+    pub const ICR: usize = 0x44;
 }
 
-/// Flag Register bits
 mod flags {
-    pub const TXFF: u32 = 1 << 5;    // Transmit FIFO Full
-    pub const RXFE: u32 = 1 << 4;    // Receive FIFO Empty
+    pub const TXFF: u32 = 1 << 5;
+    pub const RXFE: u32 = 1 << 4;
 }
 
-/// PL011 UART driver
+/// IMSC bits
+const RXIM: u32 = 1 << 4;   // Receive interrupt mask
+const RTIM: u32 = 1 << 6;   // Receive timeout interrupt mask
+
+// --------------- Lock-free RX ring buffer ---------------
+
+const RX_BUF_SIZE: usize = 256;
+
+static RX_BUF: [core::sync::atomic::AtomicU8; RX_BUF_SIZE] = {
+    const ZERO: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+    [ZERO; RX_BUF_SIZE]
+};
+static RX_HEAD: AtomicUsize = AtomicUsize::new(0); // written by IRQ handler
+static RX_TAIL: AtomicUsize = AtomicUsize::new(0); // read by consumer
+
+/// Push a byte into the RX ring buffer (called from IRQ handler only)
+fn rx_push(byte: u8) {
+    let head = RX_HEAD.load(Ordering::Relaxed);
+    let next = (head + 1) % RX_BUF_SIZE;
+    if next != RX_TAIL.load(Ordering::Acquire) {
+        RX_BUF[head].store(byte, Ordering::Relaxed);
+        RX_HEAD.store(next, Ordering::Release);
+    }
+    // else: buffer full, drop the byte
+}
+
+/// Pop a byte from the RX ring buffer (called from shell/consumer)
+pub fn rx_pop() -> Option<u8> {
+    let tail = RX_TAIL.load(Ordering::Relaxed);
+    if tail == RX_HEAD.load(Ordering::Acquire) {
+        return None;
+    }
+    let byte = RX_BUF[tail].load(Ordering::Relaxed);
+    RX_TAIL.store((tail + 1) % RX_BUF_SIZE, Ordering::Release);
+    Some(byte)
+}
+
+/// Called from the GIC UART IRQ handler -- drain PL011 FIFO into ring buffer
+pub fn handle_rx_interrupt() {
+    unsafe {
+        let base = UART_BASE as *mut u32;
+        let mut count = 0u32;
+
+        // Drain all available bytes from the hardware FIFO
+        loop {
+            let fr = base.add(regs::FR / 4).read_volatile();
+            if (fr & flags::RXFE) != 0 {
+                break;
+            }
+            let data = base.add(regs::DR / 4).read_volatile();
+            if (data & 0xF00) != 0 {
+                base.add(regs::RSR / 4).write_volatile(0);
+                continue;
+            }
+            rx_push((data & 0xFF) as u8);
+            count += 1;
+        }
+
+        // Clear RX + RT interrupt flags
+        base.add(regs::ICR / 4).write_volatile(RXIM | RTIM);
+
+        let _ = count;
+    }
+}
+
+// --------------- UART driver (TX + init) ---------------
+
 pub struct Uart {
     base: usize,
 }
 
 impl Uart {
-    /// Create a new UART instance
     pub const fn new(base: usize) -> Self {
         Uart { base }
     }
-    
-    /// Initialize the UART
+
     pub fn init(&mut self) {
         unsafe {
             let base = self.base as *mut u32;
-            
-            // Disable UART
-            base.add(regs::CR / 4).write_volatile(0);
-            
-            // Clear pending interrupts
+
+            // QEMU already configures PL011 with working defaults.
+            // Fully disabling/re-enabling the UART can break QEMU's internal
+            // chardev connection state. Instead, just layer our config on top.
+
+            // Clear any pending interrupts
             base.add(regs::ICR / 4).write_volatile(0x7FF);
-            
-            // Set baud rate (115200 with 24MHz clock)
-            // Divisor = 24000000 / (16 * 115200) = 13.0208
-            // Integer part = 13, Fractional part = 0.0208 * 64 = 1
-            base.add(regs::IBRD / 4).write_volatile(13);
-            base.add(regs::FBRD / 4).write_volatile(1);
-            
-            // 8 bits, no parity, 1 stop bit, FIFO enabled
-            base.add(regs::LCR_H / 4).write_volatile(0x70);
-            
-            // Mask all interrupts
-            base.add(regs::IMSC / 4).write_volatile(0);
-            
-            // Enable UART, TX, RX
-            base.add(regs::CR / 4).write_volatile(0x301);
+
+            // Enable RX and RX-timeout interrupts (leave rest of IMSC as-is)
+            base.add(regs::IMSC / 4).write_volatile(RXIM | RTIM);
+
+            // Ensure UART + TX + RX are enabled (may already be set by QEMU)
+            let cr = base.add(regs::CR / 4).read_volatile();
+            base.add(regs::CR / 4).write_volatile(cr | 0x301);
         }
     }
-    
-    /// Write a byte to the UART
+
     pub fn write_byte(&mut self, byte: u8) {
         unsafe {
             let base = self.base as *mut u32;
-            
-            // Wait until TX FIFO is not full
             while (base.add(regs::FR / 4).read_volatile() & flags::TXFF) != 0 {
                 core::hint::spin_loop();
             }
-            
-            // Write the byte
             base.add(regs::DR / 4).write_volatile(byte as u32);
-        }
-    }
-    
-    /// Read a byte from the UART (if available)
-    pub fn read_byte(&mut self) -> Option<u8> {
-        unsafe {
-            let base = self.base as *mut u32;
-            
-            // Check if RX FIFO is empty
-            if (base.add(regs::FR / 4).read_volatile() & flags::RXFE) != 0 {
-                return None;
-            }
-            
-            // Read the byte
-            Some((base.add(regs::DR / 4).read_volatile() & 0xFF) as u8)
         }
     }
 }
@@ -109,10 +151,9 @@ impl fmt::Write for Uart {
     }
 }
 
-/// Global UART instance
+/// Global UART instance (used for TX / init only)
 pub static UART: Mutex<Uart> = Mutex::new(Uart::new(UART_BASE));
 
-/// Initialize the UART
 pub fn init() {
     UART.lock().init();
 }
@@ -120,8 +161,6 @@ pub fn init() {
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
     use fmt::Write;
-    
-    // Disable interrupts while printing to prevent deadlock
     let enabled = super::disable_interrupts();
     UART.lock().write_fmt(args).unwrap();
     super::restore_interrupts(enabled);

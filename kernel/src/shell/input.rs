@@ -23,9 +23,26 @@ pub fn read_char() -> Option<u8> {
 
 #[cfg(target_arch = "aarch64")]
 pub fn read_char() -> Option<u8> {
-    use crate::arch::aarch64::uart::UART;
-    
-    UART.lock().read_byte()
+    // Try the interrupt-driven ring buffer first
+    if let Some(b) = crate::arch::aarch64::uart::rx_pop() {
+        return Some(b);
+    }
+
+    // Fallback: poll PL011 registers directly (no lock).
+    // QEMU TCG may not reliably fire PL011 RX interrupts,
+    // but direct register reads work (proven by bare echo test).
+    unsafe {
+        let base = 0x0900_0000u64 as *mut u32;
+        let fr = core::ptr::read_volatile(base.add(0x18 / 4));
+        if (fr & (1 << 4)) != 0 {
+            return None; // RXFE set → no data
+        }
+        let data = core::ptr::read_volatile(base.add(0x00 / 4));
+        if (data & 0xF00) != 0 {
+            return None; // error bits set
+        }
+        Some((data & 0xFF) as u8)
+    }
 }
 
 /// Read a character, blocking until one is available

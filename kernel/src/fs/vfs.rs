@@ -15,14 +15,12 @@ use super::path;
 
 /// Get current user's uid/gid for file ownership
 /// This is called BEFORE acquiring VFS lock to avoid nested locks
+/// Uses the shell SDK which has try_lock() to avoid deadlocks
 fn get_current_owner() -> (u32, u32) {
-    // Try to get from current thread's credentials
-    if let Some(creds) = crate::scheduler::current_credentials() {
-        (creds.uid.as_raw(), creds.gid.as_raw())
-    } else {
-        // Kernel context - root
-        (0, 0)
-    }
+    // Use the SDK's deadlock-free credential access
+    // The SDK uses try_lock() on the scheduler, so it won't block
+    // If the scheduler lock is held, it returns cached values
+    crate::shell::sdk::get_owner_ids()
 }
 
 /// Maximum number of open files per process
