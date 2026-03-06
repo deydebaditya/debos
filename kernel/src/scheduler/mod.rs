@@ -298,6 +298,16 @@ pub fn start_scheduler() {
 
 /// Timer interrupt handler - called from IDT/GIC
 pub fn on_timer_tick() {
+    // Re-arm the timer FIRST to prevent continuous re-firing.
+    // On AArch64 the timer's ISTATUS stays asserted until TVAL is reloaded.
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        let freq: u64;
+        core::arch::asm!("mrs {}, CNTFRQ_EL0", out(reg) freq);
+        let interval = freq / 100; // 10ms
+        core::arch::asm!("msr CNTP_TVAL_EL0, {}", in(reg) interval);
+    }
+
     let _ticks = TICKS.fetch_add(1, Ordering::Relaxed);
     
     // Start scheduler on first tick if we have threads
