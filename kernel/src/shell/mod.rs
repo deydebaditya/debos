@@ -5,7 +5,7 @@
 
 mod commands;
 mod input;
-mod sdk;
+pub(crate) mod sdk;
 
 use alloc::string::String;
 use alloc::vec::Vec;
