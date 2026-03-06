@@ -91,7 +91,7 @@ impl Uart {
         unsafe {
             let base = self.base as *mut u32;
             
-            // Read Flag Register to check status
+            // Read Flag Register to check if data is available
             let fr = base.add(regs::FR / 4).read_volatile();
             
             // Check if RX FIFO is empty
@@ -99,16 +99,16 @@ impl Uart {
                 return None;
             }
             
-            // Check for overrun error (bit 3)
-            let has_error = (fr & (1 << 3)) != 0;
-            if has_error {
-                // Clear error by reading data register
-                let _ = base.add(regs::DR / 4).read_volatile();
+            // Read the data register (bits 7:0 = data, bits 11:8 = error flags)
+            let data = base.add(regs::DR / 4).read_volatile();
+            
+            // Check DR error bits: 8=frame, 9=parity, 10=break, 11=overrun
+            if (data & 0xF00) != 0 {
+                // Clear errors via RSR/ECR register
+                base.add(0x04 / 4).write_volatile(0);
                 return None;
             }
             
-            // Read the byte from data register
-            let data = base.add(regs::DR / 4).read_volatile();
             Some((data & 0xFF) as u8)
         }
     }
