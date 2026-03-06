@@ -79,43 +79,21 @@ pub extern "C" fn kernel_main_aarch64() -> ! {
     
     debos_kernel::println!("[OK] UART initialized");
     
-    // ========== UART ECHO TEST ==========
-    // Minimal test: read from PL011 DR, echo back, no scheduler/GIC/interrupts
-    debos_kernel::println!("[TEST] Starting bare UART echo test...");
-    debos_kernel::println!("[TEST] Type characters and they should echo back.");
-    debos_kernel::println!("[TEST] (No interrupts, no scheduler, just raw polling)");
-    debos_kernel::print!("[TEST]> ");
+    // Initialize exceptions
+    debos_kernel::println!("[..] Initializing exceptions...");
+    debos_kernel::arch::aarch64::exceptions::init();
     
-    unsafe {
-        let base = 0x0900_0000u64 as *mut u32;
-        let fr_off = 0x18usize / 4;
-        let dr_off = 0x00usize / 4;
-        let mut count: u64 = 0;
-        loop {
-            let fr = core::ptr::read_volatile(base.add(fr_off));
-            if (fr & (1 << 4)) == 0 {
-                // RXFE is clear -- data available!
-                let data = core::ptr::read_volatile(base.add(dr_off));
-                let ch = (data & 0xFF) as u8;
-                // Echo via write
-                while (core::ptr::read_volatile(base.add(fr_off)) & (1 << 5)) != 0 {}
-                core::ptr::write_volatile(base.add(dr_off), ch as u32);
-                if ch == b'\r' {
-                    while (core::ptr::read_volatile(base.add(fr_off)) & (1 << 5)) != 0 {}
-                    core::ptr::write_volatile(base.add(dr_off), b'\n' as u32);
-                }
-            }
-            count += 1;
-            if count % 50_000_000 == 0 {
-                // Print heartbeat to show we're alive
-                let msg = b"\r\n[ALIVE]\r\n[TEST]> ";
-                for &b in msg {
-                    while (core::ptr::read_volatile(base.add(fr_off)) & (1 << 5)) != 0 {}
-                    core::ptr::write_volatile(base.add(dr_off), b as u32);
-                }
-            }
-        }
-    }
+    // Initialize GIC
+    debos_kernel::println!("[..] Initializing GIC...");
+    debos_kernel::arch::aarch64::gic::init();
+    
+    // Initialize memory
+    debos_kernel::println!("[..] Initializing memory...");
+    debos_kernel::memory::init_aarch64();
+    debos_kernel::println!("[OK] Memory initialized");
+    
+    // Continue with common kernel init
+    debos_kernel::kernel_init()
 }
 
 // ============================================================================

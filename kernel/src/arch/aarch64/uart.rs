@@ -93,15 +93,7 @@ pub fn handle_rx_interrupt() {
         // Clear RX + RT interrupt flags
         base.add(regs::ICR / 4).write_volatile(RXIM | RTIM);
 
-        if count > 0 {
-            // Debug: signal that we received characters
-            // Write directly to avoid UART lock (we're in IRQ context)
-            let msg = b"\r\n[RX-IRQ] got chars\r\n";
-            for &b in msg {
-                while (base.add(regs::FR / 4).read_volatile() & flags::TXFF) != 0 {}
-                base.add(regs::DR / 4).write_volatile(b as u32);
-            }
-        }
+        let _ = count;
     }
 }
 

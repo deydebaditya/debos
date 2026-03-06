@@ -148,13 +148,9 @@ impl Shell {
                     _ => {}
                 }
             } else {
-                // No input -- halt CPU until next interrupt (UART RX or timer).
-                // This is critical: WFI lets QEMU process its I/O event loop,
-                // which delivers stdin data to the PL011 and fires the RX IRQ.
-                #[cfg(target_arch = "aarch64")]
-                unsafe { core::arch::asm!("wfi"); }
-                
-                #[cfg(target_arch = "x86_64")]
+                // Yield to scheduler so timer interrupts can fire.
+                // Timer IRQs cause QEMU vCPU exits, letting QEMU's
+                // event loop process stdin and deliver it to the PL011.
                 crate::scheduler::yield_now();
             }
         }
