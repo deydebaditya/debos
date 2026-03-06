@@ -58,18 +58,8 @@ impl Shell {
                     let trimmed = line.trim();
                     
                     if !trimmed.is_empty() {
-                        // Add to history
                         self.history.push(line.clone());
-                        
-                        // Execute the command
                         self.execute(trimmed);
-                        
-                        // Ensure we end on a new line after command execution
-                        // This is critical for commands that don't output anything (mkdir, touch, etc.)
-                        crate::print!("\n");
-                    } else {
-                        // Empty line - just print a newline and continue
-                        crate::print!("\n");
                     }
                 }
                 None => {
