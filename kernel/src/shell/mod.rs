@@ -106,42 +106,59 @@ impl Shell {
     fn read_line(&mut self) -> Option<String> {
         self.input_buffer.clear();
 
-        // Key repeat throttle state:
-        // Held-key repeats are suppressed for INITIAL_DELAY ticks,
-        // then allowed every REPEAT_INTERVAL ticks.
-        // Timer runs at 100 Hz → 1 tick = 10 ms.
+        // Key-repeat throttle (timer at 100 Hz → 1 tick = 10 ms).
+        //
+        // Terminal auto-repeat sends chars every ~30 ms when held.
+        // A deliberate re-press after lifting the finger has a natural
+        // gap of ≥200 ms.  We use that gap to distinguish the two:
+        //
+        //  gap ≥ GAP_THRESHOLD  → new press  → accept immediately
+        //  gap <  GAP_THRESHOLD → auto-repeat → throttle
+        //     first 3 s of hold: suppress entirely
+        //     after 3 s: allow one repeat per 500 ms
+        const GAP_THRESHOLD: u64 = 20;  // 200 ms – new press detection
         const INITIAL_DELAY: u64 = 300; // 3 s before auto-repeat starts
         const REPEAT_INTERVAL: u64 = 50; // 500 ms between repeats
         let mut last_char: u8 = 0;
-        let mut first_press_tick: u64 = 0;
+        let mut last_raw_tick: u64 = 0;  // tick of most recent raw arrival
+        let mut hold_start_tick: u64 = 0; // tick when the hold began
         let mut last_accept_tick: u64 = 0;
 
         loop {
             if let Some(c) = input::read_char() {
                 let now = crate::scheduler::ticks();
 
-                // Throttle repeated identical printable characters.
-                // Control chars (enter, backspace, ctrl-*) are never throttled.
                 if c >= 0x20 && c < 0x7F && c == last_char {
-                    let since_first = now.wrapping_sub(first_press_tick);
-                    if since_first < INITIAL_DELAY {
-                        continue; // still in initial hold-off window
-                    }
-                    let since_last = now.wrapping_sub(last_accept_tick);
-                    if since_last < REPEAT_INTERVAL {
-                        continue; // too soon for next repeat
-                    }
-                }
+                    let gap = now.wrapping_sub(last_raw_tick);
+                    last_raw_tick = now;
 
-                // Accept this character
-                if c >= 0x20 && c < 0x7F {
-                    if c != last_char {
-                        first_press_tick = now;
+                    if gap >= GAP_THRESHOLD {
+                        // Finger was lifted and pressed again → new press
+                        hold_start_tick = now;
+                        last_accept_tick = now;
+                        // fall through to accept
+                    } else {
+                        // Rapid arrival → terminal auto-repeat (key held)
+                        let held_for = now.wrapping_sub(hold_start_tick);
+                        if held_for < INITIAL_DELAY {
+                            continue; // suppress during initial hold-off
+                        }
+                        let since_last = now.wrapping_sub(last_accept_tick);
+                        if since_last < REPEAT_INTERVAL {
+                            continue; // too soon for next repeat tick
+                        }
+                        last_accept_tick = now;
+                        // fall through to accept
                     }
+                } else if c >= 0x20 && c < 0x7F {
+                    // Different printable char → always accept, reset state
                     last_char = c;
+                    last_raw_tick = now;
+                    hold_start_tick = now;
                     last_accept_tick = now;
                 } else {
-                    last_char = 0; // reset on any control char
+                    // Control character → accept, reset repeat state
+                    last_char = 0;
                 }
 
                 match c {
