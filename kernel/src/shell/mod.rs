@@ -96,10 +96,8 @@ impl Shell {
     
     /// Print the shell prompt
     fn print_prompt(&mut self) {
-        // Use cached current directory - it's updated when cd is called
-        // Note: We rely on the newline added after command execution to ensure
-        // we're on a fresh line before printing the prompt
-        crate::print!("debos ({})> ", self.current_dir);
+        let username = sdk::current_username();
+        crate::print!("{} ({})> ", username, self.current_dir);
     }
     
     /// Read a line of input from serial
