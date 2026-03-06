@@ -16,14 +16,12 @@ const MAX_LINE_LENGTH: usize = 256;
 
 /// The kernel shell
 pub struct Shell {
-    /// Command history
     history: Vec<String>,
-    /// Current input buffer
     input_buffer: String,
-    /// Whether the shell is running
     running: bool,
-    /// Current working directory (cached for prompt display)
     current_dir: String,
+    /// Skip next \n if it follows a \r (terminals send \r\n for Enter)
+    skip_lf: bool,
 }
 
 impl Shell {
@@ -42,6 +40,7 @@ impl Shell {
             input_buffer: String::with_capacity(MAX_LINE_LENGTH),
             running: true,
             current_dir,
+            skip_lf: false,
         }
     }
     
@@ -114,6 +113,13 @@ impl Shell {
 
         loop {
             if let Some(c) = input::read_char() {
+                if self.skip_lf {
+                    self.skip_lf = false;
+                    if c == b'\n' {
+                        continue;
+                    }
+                }
+
                 let now = crate::scheduler::ticks();
 
                 if c >= 0x20 && c < 0x7F && c == last_char {
@@ -151,6 +157,9 @@ impl Shell {
 
                 match c {
                     b'\r' | b'\n' => {
+                        if c == b'\r' {
+                            self.skip_lf = true;
+                        }
                         println!();
                         return Some(self.input_buffer.clone());
                     }
@@ -208,6 +217,7 @@ impl Shell {
             "clear" | "cls" => commands::clear(args),
             "uptime" => commands::uptime(args),
             "reboot" => commands::reboot(args),
+            "shutdown" | "poweroff" => commands::shutdown(args),
             
             // Block device commands
             "disk" => commands::disk(args),

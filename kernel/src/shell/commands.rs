@@ -26,6 +26,7 @@ pub fn help(_args: &[&str]) {
     println!("  clear, cls     - Clear the screen");
     println!("  exit, quit     - Exit the shell");
     println!("  reboot         - Reboot the system");
+    println!("  shutdown       - Power off the system");
     println!();
     println!("File Commands (RamFS):");
     println!("  pwd            - Print working directory");
@@ -188,7 +189,7 @@ pub fn clear(_args: &[&str]) {
 /// Reboot the system
 pub fn reboot(_args: &[&str]) {
     println!("Rebooting system...");
-    
+
     #[cfg(target_arch = "x86_64")]
     {
         unsafe {
@@ -197,10 +198,39 @@ pub fn reboot(_args: &[&str]) {
             port.write(0xFE);
         }
     }
-    
+
     #[cfg(target_arch = "aarch64")]
+    unsafe {
+        // PSCI SYSTEM_RESET via HVC on QEMU virt machine
+        core::arch::asm!(
+            "ldr x0, =0x84000009",
+            "hvc #0",
+            options(noreturn)
+        );
+    }
+}
+
+pub fn shutdown(_args: &[&str]) {
+    println!("Shutting down...");
+
+    #[cfg(target_arch = "x86_64")]
     {
-        println!("(Reboot not implemented on AArch64 - please restart QEMU)");
+        unsafe {
+            // QEMU shutdown via ACPI (isa-debug-exit or ACPI PM1a)
+            use x86_64::instructions::port::Port;
+            let mut port = Port::<u16>::new(0x604);
+            port.write(0x2000);
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        // PSCI SYSTEM_OFF via HVC on QEMU virt machine
+        core::arch::asm!(
+            "ldr x0, =0x84000008",
+            "hvc #0",
+            options(noreturn)
+        );
     }
 }
 
